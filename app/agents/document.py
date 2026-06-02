@@ -127,7 +127,24 @@ def build_content(state: dict, doc_type: str) -> str:
     return f"Relatório institucional: {company}\n\n{r.get('description', '')}"
 
 
-def run_document_agent(state: dict) -> dict:
+def _save_ppt_result(
+    state: dict,
+    *,
+    output_path: str,
+    filename: str,
+    edit_url: Optional[str] = None,
+) -> dict:
+    state["output_path"] = output_path
+    state["output_filename"] = filename
+    state["ppt_path"] = output_path
+    state["ppt_filename"] = filename
+    if edit_url:
+        state["edit_url"] = edit_url
+    return state
+
+
+def presenton_document(state: dict) -> dict:
+    """Gera PPT via Presenton API (templates genéricos)."""
     doc_type = state.get("document_type", "CIM")
     company = state.get("research_structured", {}).get("company_name") or state.get(
         "company_name", "empresa"
@@ -141,7 +158,6 @@ def run_document_agent(state: dict) -> dict:
         )
 
     content = build_content(state, doc_type)
-
     payload = {
         "content": content,
         "n_slides": N_SLIDES_MAP.get(doc_type, 10),
@@ -149,37 +165,87 @@ def run_document_agent(state: dict) -> dict:
         "template": TEMPLATE_MAP.get(doc_type, "modern"),
         "export_as": "pptx",
     }
-
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {PRESENTON_API_KEY}",
     }
 
+    response = requests.post(PRESENTON_URL, json=payload, headers=headers, timeout=120)
+    response.raise_for_status()
+    result = response.json()
+
+    pptx_url = result.get("path")
+    if not pptx_url:
+        raise RuntimeError(f"Presenton não retornou URL: {result}")
+
+    filename = f"{company}_{doc_type}_{date.today()}.pptx"
+    output_path = f"outputs/{job_id}.pptx"
+    os.makedirs("outputs", exist_ok=True)
+
+    file_response = requests.get(pptx_url, timeout=60)
+    file_response.raise_for_status()
+    with open(output_path, "wb") as out_file:
+        out_file.write(file_response.content)
+
+    return _save_ppt_result(
+        state,
+        output_path=output_path,
+        filename=filename,
+        edit_url=result.get("edit_path"),
+    )
+
+
+def canva_document(state: dict) -> dict:
+    """Gera PPT via Canva brand template (branding do cliente)."""
+    from app.agents.canva_client import generate_pptx_from_brand_template
+
+    doc_type = state.get("document_type", "CIM")
+    company = state.get("research_structured", {}).get("company_name") or state.get(
+        "company_name", "empresa"
+    )
+    job_id = state.get("job_id", "unknown")
+
+    filename = f"{company}_{doc_type}_{date.today()}.pptx"
+    output_path = f"outputs/{job_id}.pptx"
+
+    generate_pptx_from_brand_template(state, doc_type, output_path)
+    return _save_ppt_result(state, output_path=output_path, filename=filename)
+
+
+def run_document_agent(state: dict) -> dict:
+    doc_type = state.get("document_type", "CIM")
+    company = state.get("research_structured", {}).get("company_name") or state.get(
+        "company_name", "empresa"
+    )
+    client_id = state.get("client_id", "default")
+    job_id = state.get("job_id", "unknown")
+
+    from app.utils.template import cleanup_temp_template, get_template_path
+
+    template_path = get_template_path(client_id, job_id=job_id)
+    if template_path and os.path.exists(template_path):
+        try:
+            from app.agents.document_pptx import generate_pptx_from_template
+
+            output_path = f"outputs/{job_id}.pptx"
+            print(
+                f"Document agent: template PPTX ({client_id}) → {template_path} "
+                f"para {company} ({doc_type})"
+            )
+            result = generate_pptx_from_template(state, template_path, output_path)
+            return _save_ppt_result(
+                state,
+                output_path=result["ppt_path"],
+                filename=result["ppt_filename"],
+            )
+        except Exception as exc:
+            print(f"Template PPTX falhou, fallback Presenton: {exc}")
+        finally:
+            cleanup_temp_template(template_path)
+
     try:
-        response = requests.post(PRESENTON_URL, json=payload, headers=headers, timeout=120)
-        response.raise_for_status()
-        result = response.json()
-
-        pptx_url = result.get("path")
-        if not pptx_url:
-            raise RuntimeError(f"Presenton não retornou URL: {result}")
-
-        filename = f"{company}_{doc_type}_{date.today()}.pptx"
-        output_path = f"outputs/{job_id}.pptx"
-        os.makedirs("outputs", exist_ok=True)
-
-        file_response = requests.get(pptx_url, timeout=60)
-        file_response.raise_for_status()
-        with open(output_path, "wb") as out_file:
-            out_file.write(file_response.content)
-
-        state["output_path"] = output_path
-        state["output_filename"] = filename
-        state["ppt_path"] = output_path
-        state["ppt_filename"] = filename
-        state["edit_url"] = result.get("edit_path")
-        return state
-
+        print(f"Document agent: Presenton para {company} ({doc_type})")
+        return presenton_document(state)
     except Exception as exc:
         state["error"] = f"Erro no Document Agent: {exc}"
         return state

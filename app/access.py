@@ -1,12 +1,18 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
+
+from app.audit import log_action
+from app.db import get_supabase
 
 load_dotenv()
 
 MONTHLY_LIMIT = int(os.getenv("MONTHLY_JOB_LIMIT", "30"))
-_monthly_jobs: dict[str, dict[str, int]] = {}
+
+
+def _current_month() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m")
 
 
 async def check_access(phone: str) -> bool:
@@ -18,22 +24,99 @@ async def check_access(phone: str) -> bool:
     if allowed.strip():
         return phone in {p.strip() for p in allowed.split(",") if p.strip()}
 
-    # Sem Supabase configurado: libera acesso em desenvolvimento
-    if not os.getenv("SUPABASE_URL"):
+    client = get_supabase()
+    if not client:
         return True
 
-    # TODO: consultar assinatura no Supabase
-    return False
+    try:
+        result = (
+            client.table("subscriptions")
+            .select("active")
+            .eq("phone", phone)
+            .maybe_single()
+            .execute()
+        )
+        row = result.data
+        if not row:
+            log_action(
+                phone,
+                "access_blocked",
+                resource_type="subscription",
+                metadata={"reason": "no_subscription"},
+            )
+            return False
+        if not row.get("active"):
+            log_action(
+                phone,
+                "access_blocked",
+                resource_type="subscription",
+                metadata={"reason": "inactive"},
+            )
+            return False
+        return True
+    except Exception as exc:
+        print(f"[access] check_access error: {type(exc).__name__}")
+        return False
 
 
 async def check_job_limit(phone: str) -> bool:
     """Verifica limite mensal de documentos."""
-    month = datetime.utcnow().strftime("%Y-%m")
-    counts = _monthly_jobs.setdefault(phone, {})
-    return counts.get(month, 0) < MONTHLY_LIMIT
+    client = get_supabase()
+    if not client:
+        return True
+
+    month = _current_month()
+    try:
+        result = (
+            client.table("subscriptions")
+            .select("jobs_this_month, month")
+            .eq("phone", phone)
+            .maybe_single()
+            .execute()
+        )
+        row = result.data
+        if not row:
+            return True
+        if row.get("month") != month:
+            return True
+        return int(row.get("jobs_this_month") or 0) < MONTHLY_LIMIT
+    except Exception as exc:
+        print(f"[access] check_job_limit error: {type(exc).__name__}")
+        return True
 
 
 def record_job(phone: str) -> None:
-    month = datetime.utcnow().strftime("%Y-%m")
-    counts = _monthly_jobs.setdefault(phone, {})
-    counts[month] = counts.get(month, 0) + 1
+    client = get_supabase()
+    if not client:
+        return
+
+    month = _current_month()
+    try:
+        existing = (
+            client.table("subscriptions")
+            .select("jobs_this_month, month")
+            .eq("phone", phone)
+            .maybe_single()
+            .execute()
+        )
+        row = existing.data
+        if not row:
+            client.table("subscriptions").upsert(
+                {
+                    "phone": phone,
+                    "active": True,
+                    "jobs_this_month": 1,
+                    "month": month,
+                }
+            ).execute()
+            return
+
+        count = int(row.get("jobs_this_month") or 0)
+        if row.get("month") != month:
+            count = 0
+
+        client.table("subscriptions").update(
+            {"jobs_this_month": count + 1, "month": month}
+        ).eq("phone", phone).execute()
+    except Exception as exc:
+        print(f"[access] record_job error: {type(exc).__name__}")

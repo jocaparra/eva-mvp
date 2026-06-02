@@ -44,7 +44,19 @@ def _fetch_yahoo_finance(company_name: str) -> dict:
     }
 
 
-def _financial_prompt(company_name: str, research_context: str, yahoo_data: dict) -> str:
+def _financial_prompt(
+    company_name: str,
+    research_context: str,
+    yahoo_data: dict,
+    client_context: str = "",
+) -> str:
+    client_block = ""
+    if client_context.strip():
+        client_block = (
+            f"\n\nDocumento confidencial do cliente (priorize números e fatos deste texto):\n"
+            f"{truncate_text(client_context, 4000)}\n"
+        )
+
     return (
         f"Você é um analista financeiro sênior. Com base nos dados de pesquisa sobre "
         f"{company_name}, extraia e CALCULE os dados financeiros.\n\n"
@@ -82,7 +94,7 @@ def _financial_prompt(company_name: str, research_context: str, yahoo_data: dict
         "e sinalize com 'est.' no final do valor.\n"
         "Retorne APENAS o JSON.\n\n"
         f"Pesquisa estruturada:\n{research_context}\n\n"
-        f"Yahoo Finance:\n{json.dumps(yahoo_data, default=str)}"
+        f"Yahoo Finance:\n{json.dumps(yahoo_data, default=str)}{client_block}"
     )
 
 
@@ -172,13 +184,18 @@ def financial_node(state: JobState) -> dict:
     company_name = state["company_name"]
     yahoo_data = _fetch_yahoo_finance(company_name)
     research = state.get("research_structured") or {}
+    client_context = state.get("client_context") or ""
     research_context = truncate_text(json.dumps(research, ensure_ascii=False), 3000)
+
+    prompt = _financial_prompt(
+        company_name, research_context, yahoo_data, client_context
+    )
 
     try:
         content = invoke_llm_with_pause(
             [
                 SystemMessage(content="Analista financeiro sênior. Retorne apenas JSON."),
-                HumanMessage(content=_financial_prompt(company_name, research_context, yahoo_data)),
+                HumanMessage(content=prompt),
             ],
             pause_seconds=3.0,
         )
@@ -187,7 +204,7 @@ def financial_node(state: JobState) -> dict:
         try:
             financial_structured = invoke_json_llm(
                 "Retorne JSON financeiro completo.",
-                _financial_prompt(company_name, research_context, yahoo_data),
+                prompt,
                 FINANCIAL_FIX,
             )
         except Exception:

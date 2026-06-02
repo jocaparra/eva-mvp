@@ -128,7 +128,17 @@ def _fallback_research_structured(company_name: str) -> dict:
     }
 
 
-def _synthesize_research(company_name: str, raw_research_data: str) -> dict:
+def _synthesize_research(
+    company_name: str, raw_research_data: str, client_context: str = ""
+) -> dict:
+    client_block = ""
+    if client_context.strip():
+        client_block = (
+            f"\n\nDocumento confidencial enviado pelo cliente (use como contexto adicional, "
+            f"priorize dados factuais quando disponíveis):\n"
+            f"{truncate_text(client_context, 4000)}\n"
+        )
+
     prompt = (
         f"Você recebeu dados brutos de pesquisa sobre {company_name}.\n"
         "Sintetize em um relatório estruturado em JSON com exatamente estes campos:\n\n"
@@ -154,7 +164,7 @@ def _synthesize_research(company_name: str, raw_research_data: str) -> dict:
         "- Se um dado não estiver disponível, escreva uma estimativa razoável "
         "baseada no que você sabe sobre a empresa, NUNCA retorne 'N/D' ou vazio\n"
         "- Retorne APENAS o JSON, sem texto antes ou depois\n\n"
-        f"Dados brutos: {raw_research_data}"
+        f"Dados brutos: {raw_research_data}{client_block}"
     )
     try:
         return invoke_json_llm(
@@ -181,7 +191,10 @@ def research_node(state: JobState) -> dict:
         raw_results.extend(_tavily_search(query))
 
     raw_research_data = truncate_text("\n\n".join(raw_results), MAX_SEARCH_CONTEXT)
-    research_structured = _synthesize_research(company_name, raw_research_data)
+    client_context = state.get("client_context") or ""
+    research_structured = _synthesize_research(
+        company_name, raw_research_data, client_context
+    )
     research_structured["company_name"] = company_name
 
     logo_path = None

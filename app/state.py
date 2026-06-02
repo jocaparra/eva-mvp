@@ -15,6 +15,8 @@ class JobState(TypedDict, total=False):
     ppt_path: str
     ppt_filename: str
     edit_url: str
+    client_id: str
+    client_context: str
     qa_passed: bool
     qa_issues: list[str]
     error: str

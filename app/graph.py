@@ -24,11 +24,19 @@ def build_graph():
     return graph.compile()
 
 
-def run_pipeline(job_id: str, company_name: str, document_type: str) -> JobState:
+def run_pipeline(
+    job_id: str,
+    company_name: str,
+    document_type: str,
+    client_id: str = "default",
+    client_context: str = "",
+) -> JobState:
     graph = build_graph()
     initial_state: JobState = {
         "job_id": job_id,
         "company_name": company_name,
         "document_type": document_type,
+        "client_id": client_id,
+        "client_context": client_context or "",
     }
     return graph.invoke(initial_state)

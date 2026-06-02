@@ -1,8 +1,25 @@
 from pathlib import Path
+from typing import Optional
 
 import requests
 
 USER_AGENT = "EVA/1.0"
+
+
+def download_bytes(url: str, timeout: int = 60) -> Optional[bytes]:
+    """Baixa arquivo binário (documentos, etc.)."""
+    try:
+        response = requests.get(
+            url,
+            timeout=timeout,
+            headers={"User-Agent": USER_AGENT},
+            allow_redirects=True,
+        )
+        if response.status_code != 200 or len(response.content) < 100:
+            return None
+        return response.content
+    except Exception:
+        return None
 
 
 def download_file(url: str, path: Path, timeout: int = 5) -> bool:
