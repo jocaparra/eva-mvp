@@ -11,14 +11,22 @@ ZAPI_BASE_URL = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_
 def send_message(to: str, message: str):
     """Envia mensagem de texto simples via Z-API"""
     phone = to.replace("whatsapp:", "").replace("+", "").strip()
+    phone = phone.split("@")[0]
 
     url = f"{ZAPI_BASE_URL}/send-text"
     payload = {
         "phone": phone,
         "message": message,
     }
+
+    headers = {
+        "Content-Type": "application/json",
+        "Client-Token": os.getenv("ZAPI_CLIENT_TOKEN", ""),
+    }
+
     try:
-        response = requests.post(url, json=payload, timeout=15)
+        response = requests.post(url, json=payload, headers=headers, timeout=15)
+        print(f"Z-API send response: {response.status_code} - {response.text}")
         response.raise_for_status()
         return response.json()
     except Exception as e:
