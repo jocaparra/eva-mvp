@@ -3,7 +3,8 @@ import requests
 from dotenv import load_dotenv
 load_dotenv()
 
-print(f"ZAPI_CLIENT_TOKEN configurado: {bool(os.getenv('ZAPI_CLIENT_TOKEN'))}")
+CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN", "")
+print(f"CLIENT_TOKEN carregado: '{CLIENT_TOKEN}'")
 
 ZAPI_INSTANCE_ID = os.getenv("ZAPI_INSTANCE_ID")
 ZAPI_TOKEN = os.getenv("ZAPI_TOKEN")
@@ -23,7 +24,7 @@ def send_message(to: str, message: str):
 
     headers = {
         "Content-Type": "application/json",
-        "Client-Token": os.getenv("ZAPI_CLIENT_TOKEN"),
+        "Client-Token": CLIENT_TOKEN,
     }
 
     try:
