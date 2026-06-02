@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import uuid
 from enum import Enum
 from pathlib import Path
@@ -249,7 +250,12 @@ async def whatsapp_webhook(
         )
         return {"status": "help_sent"}
 
-    has_access = await check_access(phone)
+    # Modo open access — para testes sem Stripe/Supabase
+    if os.getenv("WHATSAPP_OPEN_ACCESS", "false").lower() == "true":
+        has_access = True
+    else:
+        has_access = await check_access(phone)
+
     if not has_access:
         from app.payments import create_checkout_session
 
