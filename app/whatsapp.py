@@ -3,6 +3,8 @@ import requests
 from dotenv import load_dotenv
 load_dotenv()
 
+print(f"ZAPI_CLIENT_TOKEN configurado: {bool(os.getenv('ZAPI_CLIENT_TOKEN'))}")
+
 ZAPI_INSTANCE_ID = os.getenv("ZAPI_INSTANCE_ID")
 ZAPI_TOKEN = os.getenv("ZAPI_TOKEN")
 ZAPI_BASE_URL = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}"
@@ -21,7 +23,7 @@ def send_message(to: str, message: str):
 
     headers = {
         "Content-Type": "application/json",
-        "Client-Token": os.getenv("ZAPI_CLIENT_TOKEN", ""),
+        "Client-Token": os.getenv("ZAPI_CLIENT_TOKEN"),
     }
 
     try:
