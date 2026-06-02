@@ -186,138 +186,142 @@ async def whatsapp_webhook(
 ):
     try:
         data = await request.json()
-    except Exception:
-        data = {}
+        import json
 
-    import json
+        print(f"WEBHOOK RECEBIDO: {json.dumps(data)}")
 
-    print(f"Z-API WEBHOOK RECEBIDO: {json.dumps(data, indent=2)}")
-
-    if data.get("fromMe") or data.get("isGroupMsg"):
-        return {"status": "ignored"}
-
-    if data.get("type") not in ["text", "chat", None]:
-        if "text" not in data and "body" not in data:
+        if data.get("fromMe") or data.get("isGroupMsg"):
             return {"status": "ignored"}
 
-    phone = data.get("phone", "") or data.get("from", "")
-    phone = phone.replace("whatsapp:", "").replace("+", "").strip()
-    phone = phone.split("@")[0]
+        if data.get("type") not in ["text", "chat", None]:
+            if "text" not in data and "body" not in data:
+                return {"status": "ignored"}
 
-    message = (
-        data.get("text", {}).get("message", "")
-        if isinstance(data.get("text"), dict)
-        else ""
-    ) or data.get("body", "") or data.get("message", "") or ""
-    message = message.strip()
+        phone = data.get("phone", "") or data.get("from", "")
+        phone = phone.replace("whatsapp:", "").replace("+", "").strip()
+        phone = phone.split("@")[0]
 
-    if not phone or not message:
-        return {"status": "ignored"}
+        message = (
+            data.get("text", {}).get("message", "")
+            if isinstance(data.get("text"), dict)
+            else ""
+        ) or data.get("body", "") or data.get("message", "") or ""
+        message = message.strip()
 
-    msg_lower = message.lower()
+        if not phone or not message:
+            return {"status": "ignored"}
 
-    if any(
-        w in msg_lower
-        for w in [
-            "assinar",
-            "plano",
-            "preço",
-            "preco",
-            "valor",
-            "quanto custa",
-            "quero acessar",
-        ]
-    ):
-        from app.payments import create_checkout_session
+        msg_lower = message.lower()
 
-        link = create_checkout_session(phone)
+        if any(
+            w in msg_lower
+            for w in [
+                "assinar",
+                "plano",
+                "preço",
+                "preco",
+                "valor",
+                "quanto custa",
+                "quero acessar",
+            ]
+        ):
+            from app.payments import create_checkout_session
+
+            link = create_checkout_session(phone)
+            send_message(
+                phone,
+                "💳 *Plano EVA*\n\n"
+                "✅ 30 documentos por mês\n"
+                "✅ CIM, Valuation e Due Diligence\n"
+                "✅ Entrega direto no WhatsApp\n\n"
+                f"👉 Assine aqui:\n{link}\n\n"
+                "_Acesso ativado automaticamente após o pagamento._",
+            )
+            return {"status": "checkout_sent"}
+
+        if any(w in msg_lower for w in ["ajuda", "help", "como usar", "comandos"]):
+            send_message(
+                phone,
+                "🤖 *EVA — Comandos disponíveis*\n\n"
+                "📄 *CIM:*\n_CIM da [empresa]_\n\n"
+                "💰 *Valuation:*\n_Valuation da [empresa]_\n\n"
+                "🔍 *Due Diligence:*\n_Due diligence da [empresa]_\n\n"
+                "💳 *Assinar:*\n_assinar_\n\n"
+                "Exemplo: _Valuation da Apple_",
+            )
+            return {"status": "help_sent"}
+
+        # Modo open access — para testes sem Stripe/Supabase
+        if os.getenv("WHATSAPP_OPEN_ACCESS", "false").lower() == "true":
+            has_access = True
+        else:
+            has_access = await check_access(phone)
+
+        if not has_access:
+            from app.payments import create_checkout_session
+
+            link = create_checkout_session(phone)
+            send_message(
+                phone,
+                "⛔ Você não tem acesso à EVA.\n\n"
+                "Para assinar:\n"
+                f"👉 {link}\n\n"
+                "_30 documentos/mês. Ativação imediata._",
+            )
+            return {"status": "blocked"}
+
+        within_limit = await check_job_limit(phone)
+        if not within_limit:
+            send_message(
+                phone,
+                "⚠️ Você atingiu o limite de *30 documentos* este mês.\n\n"
+                "Seu acesso renova automaticamente no próximo ciclo.",
+            )
+            return {"status": "limit_reached"}
+
+        doc_type = detect_document_type(message)
+        company_name = extract_company_name(message)
+
+        if not company_name or len(company_name) < 2:
+            send_message(
+                phone,
+                "🤔 Não entendi o nome da empresa.\n\n"
+                "Tente assim:\n"
+                "• _Valuation da Apple_\n"
+                "• _CIM da Magazine Luiza_\n"
+                "• _Due diligence da Nubank_",
+            )
+            return {"status": "unclear"}
+
+        labels = {
+            "CIM": "CIM",
+            "VALUATION": "Valuation",
+            "DUE_DILIGENCE": "Due Diligence",
+        }
         send_message(
             phone,
-            "💳 *Plano EVA*\n\n"
-            "✅ 30 documentos por mês\n"
-            "✅ CIM, Valuation e Due Diligence\n"
-            "✅ Entrega direto no WhatsApp\n\n"
-            f"👉 Assine aqui:\n{link}\n\n"
-            "_Acesso ativado automaticamente após o pagamento._",
+            f"⏳ Gerando *{labels[doc_type]}* de *{company_name}*...\n\n"
+            f"Aguarde 2 a 5 minutos.\n"
+            f"Você receberá o link de download aqui.",
         )
-        return {"status": "checkout_sent"}
 
-    if any(w in msg_lower for w in ["ajuda", "help", "como usar", "comandos"]):
-        send_message(
-            phone,
-            "🤖 *EVA — Comandos disponíveis*\n\n"
-            "📄 *CIM:*\n_CIM da [empresa]_\n\n"
-            "💰 *Valuation:*\n_Valuation da [empresa]_\n\n"
-            "🔍 *Due Diligence:*\n_Due diligence da [empresa]_\n\n"
-            "💳 *Assinar:*\n_assinar_\n\n"
-            "Exemplo: _Valuation da Apple_",
+        job_id = create_job(company_name, doc_type, message=message, phone=phone)
+        background_tasks.add_task(
+            run_job_and_notify,
+            job_id=job_id,
+            company_name=company_name,
+            doc_type=doc_type,
+            whatsapp_from=phone,
+            phone=phone,
         )
-        return {"status": "help_sent"}
+        return {"status": "processing", "job_id": job_id}
 
-    # Modo open access — para testes sem Stripe/Supabase
-    if os.getenv("WHATSAPP_OPEN_ACCESS", "false").lower() == "true":
-        has_access = True
-    else:
-        has_access = await check_access(phone)
+    except Exception as e:
+        import traceback
 
-    if not has_access:
-        from app.payments import create_checkout_session
-
-        link = create_checkout_session(phone)
-        send_message(
-            phone,
-            "⛔ Você não tem acesso à EVA.\n\n"
-            "Para assinar:\n"
-            f"👉 {link}\n\n"
-            "_30 documentos/mês. Ativação imediata._",
-        )
-        return {"status": "blocked"}
-
-    within_limit = await check_job_limit(phone)
-    if not within_limit:
-        send_message(
-            phone,
-            "⚠️ Você atingiu o limite de *30 documentos* este mês.\n\n"
-            "Seu acesso renova automaticamente no próximo ciclo.",
-        )
-        return {"status": "limit_reached"}
-
-    doc_type = detect_document_type(message)
-    company_name = extract_company_name(message)
-
-    if not company_name or len(company_name) < 2:
-        send_message(
-            phone,
-            "🤔 Não entendi o nome da empresa.\n\n"
-            "Tente assim:\n"
-            "• _Valuation da Apple_\n"
-            "• _CIM da Magazine Luiza_\n"
-            "• _Due diligence da Nubank_",
-        )
-        return {"status": "unclear"}
-
-    labels = {
-        "CIM": "CIM",
-        "VALUATION": "Valuation",
-        "DUE_DILIGENCE": "Due Diligence",
-    }
-    send_message(
-        phone,
-        f"⏳ Gerando *{labels[doc_type]}* de *{company_name}*...\n\n"
-        f"Aguarde 2 a 5 minutos.\n"
-        f"Você receberá o link de download aqui.",
-    )
-
-    job_id = create_job(company_name, doc_type, message=message, phone=phone)
-    background_tasks.add_task(
-        run_job_and_notify,
-        job_id=job_id,
-        company_name=company_name,
-        doc_type=doc_type,
-        whatsapp_from=phone,
-        phone=phone,
-    )
-    return {"status": "processing", "job_id": job_id}
+        print(f"ERRO NO WEBHOOK: {e}")
+        print(traceback.format_exc())
+        return {"status": "error", "detail": str(e)}
 
 
 @app.post("/whatsapp/status")
