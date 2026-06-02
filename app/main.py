@@ -187,7 +187,11 @@ async def whatsapp_webhook(
     try:
         data = await request.json()
     except Exception:
-        return {"status": "ignored"}
+        data = {}
+
+    import json
+
+    print(f"Z-API WEBHOOK RECEBIDO: {json.dumps(data, indent=2)}")
 
     if data.get("fromMe") or data.get("isGroupMsg"):
         return {"status": "ignored"}
