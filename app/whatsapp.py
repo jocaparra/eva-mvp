@@ -7,9 +7,9 @@ load_dotenv()
 
 ZAPI_INSTANCE_ID = os.getenv("ZAPI_INSTANCE_ID")
 ZAPI_TOKEN = os.getenv("ZAPI_TOKEN")
-ZAPI_CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN")
+ZAPI_CLIENT_TOKEN = "F4e5ef4d568174031930b687f48bcd2eeS"
 
-print(f"ZAPI_CLIENT_TOKEN configurado: {bool(ZAPI_CLIENT_TOKEN)}")
+print(f"ZAPI_CLIENT_TOKEN hardcoded: {bool(ZAPI_CLIENT_TOKEN)}")
 
 ZAPI_BASE_URL = (
     f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}"
@@ -22,15 +22,13 @@ def send_message(to: str, message: str):
     phone = phone.split("@")[0]
 
     url = f"{ZAPI_BASE_URL}/send-text"
-    if ZAPI_CLIENT_TOKEN:
-        url = f"{url}?clientToken={ZAPI_CLIENT_TOKEN}"
-
     payload = {
         "phone": phone,
         "message": message,
     }
     headers = {
         "Content-Type": "application/json",
+        "Client-Token": ZAPI_CLIENT_TOKEN,
     }
 
     try:
