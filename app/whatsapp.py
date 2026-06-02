@@ -1,39 +1,45 @@
 import os
+
 import requests
 from dotenv import load_dotenv
-load_dotenv()
 
-CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN", "")
-print(f"CLIENT_TOKEN carregado: '{CLIENT_TOKEN}'")
+load_dotenv()
 
 ZAPI_INSTANCE_ID = os.getenv("ZAPI_INSTANCE_ID")
 ZAPI_TOKEN = os.getenv("ZAPI_TOKEN")
-ZAPI_BASE_URL = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}"
+ZAPI_CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN")
+
+print(f"ZAPI_CLIENT_TOKEN configurado: {bool(ZAPI_CLIENT_TOKEN)}")
+
+ZAPI_BASE_URL = (
+    f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}"
+    f"/token/{ZAPI_TOKEN}"
+)
 
 
 def send_message(to: str, message: str):
-    """Envia mensagem de texto simples via Z-API"""
     phone = to.replace("whatsapp:", "").replace("+", "").strip()
     phone = phone.split("@")[0]
 
     url = f"{ZAPI_BASE_URL}/send-text"
+    if ZAPI_CLIENT_TOKEN:
+        url = f"{url}?clientToken={ZAPI_CLIENT_TOKEN}"
+
     payload = {
         "phone": phone,
         "message": message,
     }
-
     headers = {
         "Content-Type": "application/json",
-        "Client-Token": CLIENT_TOKEN,
     }
 
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=15)
-        print(f"Z-API send response: {response.status_code} - {response.text}")
+        print(f"Z-API response: {response.status_code} - {response.text}")
         response.raise_for_status()
         return response.json()
     except Exception as e:
-        print(f"Erro ao enviar mensagem Z-API: {e}")
+        print(f"Erro Z-API: {e}")
 
 
 def send_download_link(to: str, job_id: str, filename: str):
