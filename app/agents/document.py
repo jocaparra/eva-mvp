@@ -170,8 +170,39 @@ def presenton_document(state: dict) -> dict:
         "Authorization": f"Bearer {PRESENTON_API_KEY}",
     }
 
-    response = requests.post(PRESENTON_URL, json=payload, headers=headers, timeout=120)
-    response.raise_for_status()
+    primary_template = TEMPLATE_MAP.get(doc_type, "modern")
+    templates_to_try = [primary_template]
+    if primary_template == "professional":
+        templates_to_try.append("modern")
+
+    response = None
+    last_exc: Optional[Exception] = None
+    for template in templates_to_try:
+        payload["template"] = template
+        try:
+            response = requests.post(
+                PRESENTON_URL, json=payload, headers=headers, timeout=120
+            )
+            print(f"[document_agent] Presenton status={response.status_code} template={template}")
+            print(f"[document_agent] Presenton response={response.text[:500]}")
+            response.raise_for_status()
+            break
+        except Exception as exc:
+            last_exc = exc
+            print(
+                f"[document_agent] Presenton falhou template={template} "
+                f"tipo={type(exc).__name__} msg={exc}"
+            )
+            if hasattr(exc, "response") and exc.response is not None:
+                print(f"[document_agent] PRESENTON RESPONSE: {exc.response.text}")
+            if template != templates_to_try[-1]:
+                print("[document_agent] Retentando Presenton com template=modern")
+                continue
+            raise last_exc from exc
+
+    if response is None:
+        raise RuntimeError("Presenton não retornou resposta") from last_exc
+
     result = response.json()
 
     pptx_url = result.get("path")
@@ -247,6 +278,12 @@ def run_document_agent(state: dict) -> dict:
         print(f"Document agent: Presenton para {company} ({doc_type})")
         return presenton_document(state)
     except Exception as exc:
+        import traceback
+
+        print(f"[document_agent] ERRO tipo={type(exc).__name__} msg={exc}")
+        print(f"[document_agent] TRACEBACK: {traceback.format_exc()}")
+        if hasattr(exc, "response") and exc.response is not None:
+            print(f"[document_agent] PRESENTON RESPONSE: {exc.response.text}")
         state["error"] = f"Erro no Document Agent: {exc}"
         return state
 
