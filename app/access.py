@@ -1,22 +1,14 @@
 import os
-from datetime import datetime, timezone
-
-from dotenv import load_dotenv
-
-from app.audit import log_action
+from datetime import datetime
 from app.db import get_supabase
-
-load_dotenv()
 
 MONTHLY_LIMIT = int(os.getenv("MONTHLY_JOB_LIMIT", "30"))
 
-
-def _current_month() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m")
+# fallback em memória para dev sem Supabase
+_memory_jobs: dict[str, dict[str, int]] = {}
 
 
 async def check_access(phone: str) -> bool:
-    """Verifica se o número tem assinatura ativa."""
     if os.getenv("WHATSAPP_OPEN_ACCESS", "").lower() in ("1", "true", "yes"):
         return True
 
@@ -26,97 +18,55 @@ async def check_access(phone: str) -> bool:
 
     client = get_supabase()
     if not client:
-        return True
+        return True  # dev sem Supabase: libera
 
     try:
-        result = (
-            client.table("subscriptions")
-            .select("active")
+        res = (
+            client.table("assinaturas")
+            .select("status")
             .eq("phone", phone)
+            .eq("status", "ativa")
             .maybe_single()
             .execute()
         )
-        row = result.data
-        if not row:
-            log_action(
-                phone,
-                "access_blocked",
-                resource_type="subscription",
-                metadata={"reason": "no_subscription"},
-            )
-            return False
-        if not row.get("active"):
-            log_action(
-                phone,
-                "access_blocked",
-                resource_type="subscription",
-                metadata={"reason": "inactive"},
-            )
-            return False
-        return True
-    except Exception as exc:
-        print(f"[access] check_access error: {type(exc).__name__}")
+        return bool(res.data)
+    except Exception:
         return False
 
 
 async def check_job_limit(phone: str) -> bool:
-    """Verifica limite mensal de documentos."""
+    mes = datetime.utcnow().strftime("%Y-%m")
+
     client = get_supabase()
     if not client:
-        return True
+        counts = _memory_jobs.setdefault(phone, {})
+        return counts.get(mes, 0) < MONTHLY_LIMIT
 
-    month = _current_month()
     try:
-        result = (
-            client.table("subscriptions")
-            .select("jobs_this_month, month")
+        res = (
+            client.table("uso_mensal")
+            .select("total")
             .eq("phone", phone)
+            .eq("mes", mes)
             .maybe_single()
             .execute()
         )
-        row = result.data
-        if not row:
-            return True
-        if row.get("month") != month:
-            return True
-        return int(row.get("jobs_this_month") or 0) < MONTHLY_LIMIT
-    except Exception as exc:
-        print(f"[access] check_job_limit error: {type(exc).__name__}")
-        return True
+        total = (res.data or {}).get("total", 0)
+        return total < MONTHLY_LIMIT
+    except Exception:
+        return True  # em caso de erro, não bloqueia
 
 
 def record_job(phone: str) -> None:
+    mes = datetime.utcnow().strftime("%Y-%m")
+
     client = get_supabase()
     if not client:
+        counts = _memory_jobs.setdefault(phone, {})
+        counts[mes] = counts.get(mes, 0) + 1
         return
 
-    month = _current_month()
     try:
-        existing = (
-            client.table("subscriptions")
-            .select("jobs_this_month, month")
-            .eq("phone", phone)
-            .maybe_single()
-            .execute()
-        )
-        row = existing.data
-        if not row:
-            client.table("subscriptions").upsert(
-                {
-                    "phone": phone,
-                    "active": True,
-                    "jobs_this_month": 1,
-                    "month": month,
-                }
-            ).execute()
-            return
-
-        count = int(row.get("jobs_this_month") or 0)
-        if row.get("month") != month:
-            count = 0
-
-        client.table("subscriptions").update(
-            {"jobs_this_month": count + 1, "month": month}
-        ).eq("phone", phone).execute()
-    except Exception as exc:
-        print(f"[access] record_job error: {type(exc).__name__}")
+        client.rpc("incrementar_uso", {"p_phone": phone, "p_mes": mes}).execute()
+    except Exception:
+        pass

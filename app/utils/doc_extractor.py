@@ -119,6 +119,10 @@ def _detect_doc_type(filename: str, mime_type: str = "") -> str | None:
     return None
 
 
+def is_allowed_document(filename: str, mime_type: str = "") -> bool:
+    return _detect_doc_type(filename, mime_type) is not None
+
+
 def extract_document(data: bytes, filename: str, mime_type: str = "") -> Tuple[str, str]:
     """Extrai texto de bytes. Retorna (texto, doc_type)."""
     doc_type = _detect_doc_type(filename, mime_type)

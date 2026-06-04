@@ -13,15 +13,18 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.access import check_access, check_job_limit, record_job
 from app.audit import log_action
+from app.auth import router as auth_router
 from app.company_extract import extract_company_name
 from app.document_types import detect_document_type
 from app.graph import run_pipeline
-from app.jobs_store import create_job, get_job, update_job
+from app.jobs_store import create_job, get_job, list_jobs, update_job
 from app.llm import ENV_PATH
 from app.log_utils import log_job_created, log_webhook_error, log_webhook_received
+from app.middleware import AuthPhone
+from app.utils.client_documents import process_web_document_upload
 from app.utils.doc_cache import cleanup_expired, clear_context, get_context, get_context_meta
 from app.utils.template import save_client_template
-from app.whatsapp import send_download_link, send_error, send_message
+from app.whatsapp import send_dashboard_ready, send_download_link, send_error, send_message
 from app.whatsapp_documents import handle_whatsapp_document_upload
 from app.whatsapp_privacy import is_first_contact, send_privacy_welcome
 from app.whatsapp_templates import handle_whatsapp_template_upload
@@ -30,12 +33,24 @@ load_dotenv(ENV_PATH)
 
 app = FastAPI(title="EVA", description="Autonomous document generation agent")
 
+app.include_router(auth_router)
+
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
 
 @app.get("/")
 def root():
     return FileResponse("frontend/index.html")
+
+
+@app.get("/platform")
+def platform():
+    return FileResponse("frontend/platform.html")
+
+
+@app.get("/login")
+def login_page():
+    return FileResponse("frontend/login.html")
 
 
 class JobStatus(str, Enum):
@@ -55,6 +70,16 @@ class CreateJobRequest(BaseModel):
         examples=["Gerar CIM da Nubank"],
     )
     client_id: str = Field(default="default", examples=["fundo_xyz"])
+
+
+class WebJobRequest(BaseModel):
+    message: str = Field(..., min_length=1, examples=["Valuation da Apple"])
+
+
+class UploadProcessedResponse(BaseModel):
+    status: str = "processed"
+    context_available: bool = True
+    expires_in: str = "30min"
 
 
 class JobRecord(BaseModel):
@@ -159,6 +184,22 @@ def run_job_and_notify(
         send_error(notify_phone, company_name)
 
 
+def run_web_job_and_notify(
+    job_id: str,
+    company_name: str,
+    doc_type: str,
+    phone: str,
+) -> None:
+    _run_job(job_id, company_name, doc_type, phone)
+    job = get_job(job_id) or {}
+
+    if job.get("status") == JobStatus.DONE.value:
+        send_dashboard_ready(phone)
+        record_job(phone)
+    else:
+        send_error(phone, company_name)
+
+
 @app.post("/jobs", response_model=JobRecord, status_code=202)
 def submit_job(request: CreateJobRequest, background_tasks: BackgroundTasks):
     document_type = detect_document_type(request.message)
@@ -175,6 +216,49 @@ def submit_job(request: CreateJobRequest, background_tasks: BackgroundTasks):
     )
 
     job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=500, detail="Failed to create job")
+    return JobRecord(**job)
+
+
+@app.post("/jobs/web", response_model=JobRecord, status_code=202)
+async def submit_web_job(
+    request: WebJobRequest,
+    background_tasks: BackgroundTasks,
+    auth_phone: AuthPhone,
+):
+    message = request.message.strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Mensagem vazia.")
+
+    document_type = detect_document_type(message)
+    company_name = extract_company_name(message)
+    if not company_name or len(company_name) < 2:
+        raise HTTPException(status_code=400, detail="Nome da empresa não identificado.")
+
+    if not await check_access(auth_phone):
+        raise HTTPException(status_code=403, detail="Assinatura ativa necessária.")
+
+    if not await check_job_limit(auth_phone):
+        raise HTTPException(status_code=429, detail="Limite mensal de documentos atingido.")
+
+    job_id = create_job(
+        company_name,
+        document_type,
+        phone=auth_phone,
+        client_id=auth_phone,
+    )
+    log_job_created(auth_phone, document_type, job_id)
+
+    background_tasks.add_task(
+        run_web_job_and_notify,
+        job_id=job_id,
+        company_name=company_name,
+        doc_type=document_type,
+        phone=auth_phone,
+    )
+
+    job = get_job(job_id, phone=auth_phone)
     if not job:
         raise HTTPException(status_code=500, detail="Failed to create job")
     return JobRecord(**job)
@@ -205,6 +289,67 @@ async def upload_template(client_id: str, file: UploadFile = File(...)):
     }
 
 
+@app.post("/upload", response_model=UploadProcessedResponse)
+async def upload_document(auth_phone: AuthPhone, file: UploadFile = File(...)):
+    """Upload efêmero de documento para contexto de análise (JWT obrigatório)."""
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Nome de arquivo ausente.")
+
+    content = await file.read()
+    mime_type = file.content_type or ""
+
+    try:
+        result = process_web_document_upload(
+            auth_phone,
+            content,
+            file.filename,
+            mime_type,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Falha ao processar documento.") from exc
+    finally:
+        del content
+
+    return UploadProcessedResponse(**result)
+
+
+@app.post("/templates/upload")
+async def upload_template_authenticated(
+    auth_phone: AuthPhone,
+    file: UploadFile = File(...),
+):
+    """Upload de template .pptx — requer JWT (phone = client_id)."""
+    if not file.filename or not file.filename.lower().endswith(".pptx"):
+        raise HTTPException(
+            status_code=400,
+            detail="Envie um arquivo .pptx válido.",
+        )
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Arquivo vazio.")
+
+    try:
+        storage_path = save_client_template(auth_phone, content, file.filename)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return {
+        "status": "ok",
+        "client_id": auth_phone,
+        "path": storage_path,
+        "filename": file.filename,
+    }
+
+
+@app.get("/jobs", response_model=list[JobRecord])
+def list_user_jobs(auth_phone: AuthPhone):
+    jobs = list_jobs(auth_phone)
+    return [JobRecord(**job) for job in jobs]
+
+
 @app.get("/jobs/{job_id}/status", response_model=JobRecord)
 def get_job_status(job_id: str, phone: Optional[str] = None, client_id: Optional[str] = None):
     owner = phone or client_id
@@ -216,9 +361,8 @@ def get_job_status(job_id: str, phone: Optional[str] = None, client_id: Optional
 
 
 @app.get("/jobs/{job_id}/download")
-def download_job(job_id: str, phone: Optional[str] = None, client_id: Optional[str] = None):
-    owner = phone or client_id
-    job = get_job(job_id, phone=owner) if owner else get_job(job_id)
+def download_job(job_id: str, auth_phone: AuthPhone):
+    job = get_job(job_id, phone=auth_phone)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
@@ -244,6 +388,90 @@ def download_job(job_id: str, phone: Optional[str] = None, client_id: Optional[s
 @app.on_event("startup")
 def _startup_doc_cache_cleanup():
     cleanup_expired()
+
+
+@app.get("/deals")
+async def listar_deals(auth_phone: AuthPhone):
+    from app.db import get_supabase
+    client = get_supabase()
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco não configurado")
+    firma = client.table("firmas").select("id").eq("whatsapp", auth_phone).maybe_single().execute()
+    if not firma.data:
+        return []
+    firma_id = firma.data["id"]
+    res = client.table("deals").select("*, documentos(*)").eq("firma_id", firma_id).order("criado_em", desc=True).execute()
+    return res.data or []
+
+
+@app.get("/deal/{deal_id}")
+async def ver_deal(deal_id: str, auth_phone: AuthPhone):
+    from app.db import get_supabase
+    from app.supabase_ops import get_signed_url
+    client = get_supabase()
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco não configurado")
+    firma = client.table("firmas").select("id").eq("whatsapp", auth_phone).maybe_single().execute()
+    if not firma.data:
+        raise HTTPException(status_code=403, detail="Acesso negado")
+    firma_id = firma.data["id"]
+    deal = client.table("deals").select("*").eq("id", deal_id).eq("firma_id", firma_id).maybe_single().execute()
+    if not deal.data:
+        raise HTTPException(status_code=404, detail="Deal não encontrado")
+    docs = client.table("documentos").select("*").eq("deal_id", deal_id).execute()
+    documentos_com_url = []
+    for doc in (docs.data or []):
+        url = get_signed_url(doc["storage_path"])
+        documentos_com_url.append({**doc, "download_url": url})
+    return {"deal": deal.data, "documentos": documentos_com_url}
+
+
+@app.get("/deal/{deal_id}/download/{doc_id}")
+async def download_documento(deal_id: str, doc_id: str, phone: str):
+    from app.db import get_supabase
+    client = get_supabase()
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco não configurado")
+
+    # Verifica que o deal pertence à firma do phone
+    firma = (
+        client.table("firmas")
+        .select("id")
+        .eq("whatsapp", phone)
+        .maybe_single()
+        .execute()
+    )
+    if not firma.data:
+        raise HTTPException(status_code=403, detail="Acesso negado")
+
+    deal = (
+        client.table("deals")
+        .select("id")
+        .eq("id", deal_id)
+        .eq("firma_id", firma.data["id"])
+        .maybe_single()
+        .execute()
+    )
+    if not deal.data:
+        raise HTTPException(status_code=403, detail="Deal não encontrado")
+
+    doc = (
+        client.table("documentos")
+        .select("storage_path, tipo")
+        .eq("id", doc_id)
+        .eq("deal_id", deal_id)
+        .maybe_single()
+        .execute()
+    )
+    if not doc.data:
+        raise HTTPException(status_code=404, detail="Documento não encontrado")
+
+    # Gera URL assinada válida por 1 hora
+    signed = client.storage.from_("documentos").create_signed_url(
+        doc.data["storage_path"], 3600
+    )
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url=signed["signedURL"])
 
 
 @app.post("/whatsapp")

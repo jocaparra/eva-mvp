@@ -19,6 +19,19 @@ CREATE TABLE IF NOT EXISTS jobs (
 CREATE INDEX IF NOT EXISTS idx_jobs_phone ON jobs(phone);
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 
+-- OTP codes for WhatsApp authentication
+CREATE TABLE IF NOT EXISTS otp_codes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  phone TEXT NOT NULL,
+  code TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_otp_codes_phone ON otp_codes(phone);
+CREATE INDEX IF NOT EXISTS idx_otp_codes_lookup ON otp_codes(phone, code, used);
+
 -- Assinaturas dos clientes
 CREATE TABLE IF NOT EXISTS subscriptions (
   phone TEXT PRIMARY KEY,
@@ -67,6 +80,10 @@ CREATE POLICY IF NOT EXISTS audit_logs_phone_isolation ON audit_logs
 -- Storage bucket privado para templates
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('templates', 'templates', false)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('client-documents', 'client-documents', false)
 ON CONFLICT (id) DO NOTHING;
 
 -- Trigger updated_at

@@ -9,7 +9,7 @@ load_dotenv()
 
 ZAPI_INSTANCE_ID = os.getenv("ZAPI_INSTANCE_ID")
 ZAPI_TOKEN = os.getenv("ZAPI_TOKEN")
-ZAPI_CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN")
+ZAPI_CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN", "")
 
 ZAPI_BASE_URL = (
     f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}"
@@ -41,15 +41,26 @@ def send_message(to: str, message: str):
 
 
 def send_download_link(to: str, job_id: str, filename: str):
-    """Envia link de download quando job terminar"""
-    base_url = os.getenv("BASE_URL", "http://localhost:8000")
-    phone = to.replace("whatsapp:", "").replace("+", "").strip().split("@")[0]
-    link = f"{base_url}/jobs/{job_id}/download?phone={phone}"
+    """Mantido por compatibilidade — use send_platform_link quando possível."""
+    base_url = os.getenv("PLATFORM_URL", os.getenv("BASE_URL", "http://localhost:8000"))
+    link = f"{base_url}/jobs/{job_id}/download"
     send_message(
         to,
         f"✅ *{filename}* pronto!\n\n"
         f"📥 Baixe aqui:\n{link}\n\n"
-        f"🔒 _Dados de entrada descartados após geração._",
+        f"_Link válido por 24 horas._",
+    )
+
+
+def send_platform_link(to: str, deal_id: str, company_name: str):
+    """Envia link da plataforma segura ao invés do endpoint direto."""
+    platform_url = os.getenv("PLATFORM_URL", "https://app.oxai.online")
+    link = f"{platform_url}/deal/{deal_id}"
+    send_message(
+        to,
+        f"✅ *{company_name}* está pronto.\n\n"
+        f"🔐 Acesse seu documento aqui:\n{link}\n\n"
+        f"_Faça login com seu e-mail para visualizar._",
     )
 
 
@@ -59,4 +70,14 @@ def send_error(to: str, company: str):
         to,
         f"❌ Erro ao gerar documento para *{company}*.\n"
         f"Tente novamente ou entre em contato com o suporte.",
+    )
+
+
+def send_dashboard_ready(to: str):
+    """Notifica conclusão de job criado via dashboard web."""
+    base_url = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
+    send_message(
+        to,
+        f"✅ Seu documento está pronto no dashboard.\n"
+        f"📊 Acesse: {base_url}/dashboard",
     )

@@ -115,3 +115,23 @@ def phone_has_jobs(phone: str) -> bool:
             return False
 
     return any(job.get("phone") == phone for job in _memory_jobs.values())
+
+
+def list_jobs(phone: str, limit: int = 50) -> list[dict[str, Any]]:
+    client = get_supabase()
+    if client:
+        try:
+            result = (
+                client.table("jobs")
+                .select("*")
+                .eq("phone", phone)
+                .order("created_at", desc=True)
+                .limit(limit)
+                .execute()
+            )
+            return [_row_to_job(row) for row in (result.data or [])]
+        except Exception:
+            return []
+
+    jobs = [job for job in _memory_jobs.values() if job.get("phone") == phone]
+    return jobs[:limit]
