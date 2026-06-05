@@ -44,14 +44,134 @@ def root():
     return RedirectResponse(url="/login")
 
 
-@app.get("/platform")
-def platform():
-    return FileResponse("frontend/platform.html")
-
-
 @app.get("/login")
 def login_page():
     return FileResponse("frontend/login.html")
+
+
+@app.get("/platform")
+def platform_page():
+    return FileResponse("frontend/platform.html")
+
+
+@app.get("/me")
+async def get_me(auth_phone: AuthPhone):
+    return {"phone": auth_phone}
+
+
+@app.get("/deals")
+async def listar_deals(auth_phone: AuthPhone):
+    from app.db import get_supabase
+    client = get_supabase()
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco não configurado")
+    firma = (
+        client.table("firmas")
+        .select("id")
+        .eq("whatsapp", auth_phone)
+        .maybe_single()
+        .execute()
+    )
+    if not firma.data:
+        return []
+    res = (
+        client.table("deals")
+        .select("*, documentos(*)")
+        .eq("firma_id", firma.data["id"])
+        .order("criado_em", desc=True)
+        .execute()
+    )
+    return res.data or []
+
+
+@app.get("/deal/{deal_id}")
+async def ver_deal(deal_id: str, auth_phone: AuthPhone):
+    from app.db import get_supabase
+    from app.supabase_ops import get_signed_url
+    client = get_supabase()
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco não configurado")
+    firma = (
+        client.table("firmas")
+        .select("id")
+        .eq("whatsapp", auth_phone)
+        .maybe_single()
+        .execute()
+    )
+    if not firma.data:
+        raise HTTPException(status_code=403, detail="Acesso negado")
+    deal = (
+        client.table("deals")
+        .select("*")
+        .eq("id", deal_id)
+        .eq("firma_id", firma.data["id"])
+        .maybe_single()
+        .execute()
+    )
+    if not deal.data:
+        raise HTTPException(status_code=404, detail="Deal não encontrado")
+    docs = client.table("documentos").select("*").eq("deal_id", deal_id).execute()
+    documentos_com_url = []
+    for doc in (docs.data or []):
+        try:
+            url = get_signed_url(doc["storage_path"])
+            documentos_com_url.append({**doc, "download_url": url})
+        except Exception:
+            documentos_com_url.append(doc)
+    return {"deal": deal.data, "documentos": documentos_com_url}
+
+
+@app.get("/deal/{deal_id}/download/{doc_id}")
+async def download_documento(
+    deal_id: str,
+    doc_id: str,
+    request: Request,
+    token: Optional[str] = None,
+):
+    from app.auth import verify_access_token
+    from app.db import get_supabase
+    from fastapi.responses import RedirectResponse
+    auth_header = request.headers.get("Authorization", "")
+    raw_token = token or (auth_header.replace("Bearer ", "") if auth_header else None)
+    if not raw_token:
+        raise HTTPException(status_code=401, detail="Token necessário")
+    phone = verify_access_token(raw_token)
+    client = get_supabase()
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco não configurado")
+    firma = (
+        client.table("firmas")
+        .select("id")
+        .eq("whatsapp", phone)
+        .maybe_single()
+        .execute()
+    )
+    if not firma.data:
+        raise HTTPException(status_code=403, detail="Acesso negado")
+    deal = (
+        client.table("deals")
+        .select("id")
+        .eq("id", deal_id)
+        .eq("firma_id", firma.data["id"])
+        .maybe_single()
+        .execute()
+    )
+    if not deal.data:
+        raise HTTPException(status_code=403, detail="Deal não encontrado")
+    doc = (
+        client.table("documentos")
+        .select("storage_path, tipo")
+        .eq("id", doc_id)
+        .eq("deal_id", deal_id)
+        .maybe_single()
+        .execute()
+    )
+    if not doc.data:
+        raise HTTPException(status_code=404, detail="Documento não encontrado")
+    signed = client.storage.from_("documentos").create_signed_url(
+        doc.data["storage_path"], 3600
+    )
+    return RedirectResponse(url=signed["signedURL"])
 
 
 class JobStatus(str, Enum):
@@ -181,13 +301,13 @@ def run_job_and_notify(
         ppt_path = job.get("ppt_path")
         try:
             from app.supabase_ops import get_or_create_firma, criar_deal, salvar_documento
+            from app.whatsapp import send_platform_link
             firma_id = get_or_create_firma(notify_phone)
             deal_id  = criar_deal(firma_id, company_name)
             salvar_documento(deal_id, firma_id, doc_type, ppt_path)
-            from app.whatsapp import send_platform_link
             send_platform_link(notify_phone, deal_id, company_name)
         except Exception as e:
-            print(f"[storage] Erro ao salvar no Supabase: {e}")
+            print(f"[storage] Falha ao salvar no Supabase: {e}")
             filename = job.get("ppt_filename") or f"{company_name}_{doc_type}.pptx"
             send_download_link(notify_phone, job_id, filename)
         record_job(notify_phone)
@@ -399,85 +519,6 @@ def download_job(job_id: str, auth_phone: AuthPhone):
 @app.on_event("startup")
 def _startup_doc_cache_cleanup():
     cleanup_expired()
-
-
-@app.get("/deals")
-async def listar_deals(auth_phone: AuthPhone):
-    from app.db import get_supabase
-    client = get_supabase()
-    if not client:
-        raise HTTPException(status_code=503, detail="Banco não configurado")
-    firma = client.table("firmas").select("id").eq("whatsapp", auth_phone).maybe_single().execute()
-    if not firma.data:
-        return []
-    firma_id = firma.data["id"]
-    res = client.table("deals").select("*, documentos(*)").eq("firma_id", firma_id).order("criado_em", desc=True).execute()
-    return res.data or []
-
-
-@app.get("/deal/{deal_id}")
-async def ver_deal(deal_id: str, auth_phone: AuthPhone):
-    from app.db import get_supabase
-    from app.supabase_ops import get_signed_url
-    client = get_supabase()
-    if not client:
-        raise HTTPException(status_code=503, detail="Banco não configurado")
-    firma = client.table("firmas").select("id").eq("whatsapp", auth_phone).maybe_single().execute()
-    if not firma.data:
-        raise HTTPException(status_code=403, detail="Acesso negado")
-    firma_id = firma.data["id"]
-    deal = client.table("deals").select("*").eq("id", deal_id).eq("firma_id", firma_id).maybe_single().execute()
-    if not deal.data:
-        raise HTTPException(status_code=404, detail="Deal não encontrado")
-    docs = client.table("documentos").select("*").eq("deal_id", deal_id).execute()
-    documentos_com_url = []
-    for doc in (docs.data or []):
-        url = get_signed_url(doc["storage_path"])
-        documentos_com_url.append({**doc, "download_url": url})
-    return {"deal": deal.data, "documentos": documentos_com_url}
-
-
-@app.get("/deal/{deal_id}/download/{doc_id}")
-async def download_documento(
-    deal_id: str,
-    doc_id: str,
-    request: Request,
-    token: Optional[str] = None,
-):
-    from app.auth import verify_access_token
-    from app.db import get_supabase
-    from fastapi.responses import RedirectResponse
-
-    # Aceita token via header ou query string
-    auth_header = request.headers.get("Authorization", "")
-    raw_token = token or (auth_header.replace("Bearer ", "") if auth_header else None)
-    if not raw_token:
-        raise HTTPException(status_code=401, detail="Token necessário")
-
-    phone = verify_access_token(raw_token)
-    client = get_supabase()
-    if not client:
-        raise HTTPException(status_code=503, detail="Banco não configurado")
-
-    firma = client.table("firmas").select("id").eq("whatsapp", phone).maybe_single().execute()
-    if not firma.data:
-        raise HTTPException(status_code=403, detail="Acesso negado")
-
-    deal = client.table("deals").select("id").eq("id", deal_id).eq("firma_id", firma.data["id"]).maybe_single().execute()
-    if not deal.data:
-        raise HTTPException(status_code=403, detail="Deal não encontrado")
-
-    doc = client.table("documentos").select("storage_path, tipo").eq("id", doc_id).eq("deal_id", deal_id).maybe_single().execute()
-    if not doc.data:
-        raise HTTPException(status_code=404, detail="Documento não encontrado")
-
-    signed = client.storage.from_("documentos").create_signed_url(doc.data["storage_path"], 3600)
-    return RedirectResponse(url=signed["signedURL"])
-
-
-@app.get("/me")
-async def get_me(auth_phone: AuthPhone):
-    return {"phone": auth_phone}
 
 
 @app.post("/whatsapp")

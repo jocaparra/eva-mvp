@@ -53,14 +53,13 @@ def send_download_link(to: str, job_id: str, filename: str):
 
 
 def send_platform_link(to: str, deal_id: str, company_name: str):
-    """Envia link da plataforma segura ao invés do endpoint direto."""
-    platform_url = os.getenv("PLATFORM_URL", "https://app.oxai.online")
+    platform_url = os.getenv("PLATFORM_URL", "https://eva-mvp-production.up.railway.app")
     link = f"{platform_url}/deal/{deal_id}"
     send_message(
         to,
         f"✅ *{company_name}* está pronto.\n\n"
-        f"🔐 Acesse seu documento aqui:\n{link}\n\n"
-        f"_Faça login com seu e-mail para visualizar._",
+        f"🔐 Acesse seu documento:\n{link}\n\n"
+        f"_Faça login com seu WhatsApp para visualizar._",
     )
 
 
