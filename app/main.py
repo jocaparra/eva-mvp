@@ -40,7 +40,8 @@ app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
 @app.get("/")
 def root():
-    return FileResponse("frontend/index.html")
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/login")
 
 
 @app.get("/platform")
@@ -472,6 +473,11 @@ async def download_documento(
 
     signed = client.storage.from_("documentos").create_signed_url(doc.data["storage_path"], 3600)
     return RedirectResponse(url=signed["signedURL"])
+
+
+@app.get("/me")
+async def get_me(auth_phone: AuthPhone):
+    return {"phone": auth_phone}
 
 
 @app.post("/whatsapp")
