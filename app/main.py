@@ -59,6 +59,17 @@ async def get_me(auth_phone: AuthPhone):
     return {"phone": auth_phone}
 
 
+@app.post("/auth/dev-login")
+async def dev_login(request: Request):
+    from app.auth import create_access_token, normalize_phone
+    body = await request.json()
+    phone = normalize_phone(str(body.get("phone", "")))
+    if not phone:
+        raise HTTPException(status_code=400, detail="Número inválido")
+    token = create_access_token(phone)
+    return {"access_token": token, "phone": phone, "token_type": "bearer"}
+
+
 @app.get("/deals")
 async def listar_deals(auth_phone: AuthPhone):
     from app.db import get_supabase
