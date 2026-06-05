@@ -59,6 +59,63 @@ async def get_me(auth_phone: AuthPhone):
     return {"phone": auth_phone}
 
 
+@app.post("/upload")
+async def upload_arquivo(auth_phone: AuthPhone, file: UploadFile = File(...)):
+    from app.db import get_supabase
+    from app.supabase_ops import get_or_create_firma
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Arquivo sem nome")
+    content = await file.read()
+    client = get_supabase()
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco não configurado")
+    firma_id = get_or_create_firma(auth_phone)
+    storage_path = f"{firma_id}/files/{file.filename}"
+    try:
+        client.storage.from_("arquivos").upload(
+            path=storage_path,
+            file=content,
+            file_options={"content-type": file.content_type or "application/octet-stream"}
+        )
+    except Exception as e:
+        if "already exists" in str(e).lower():
+            client.storage.from_("arquivos").remove([storage_path])
+            client.storage.from_("arquivos").upload(
+                path=storage_path,
+                file=content,
+                file_options={"content-type": file.content_type or "application/octet-stream"}
+            )
+        else:
+            raise HTTPException(status_code=500, detail=str(e))
+    return {"status": "ok", "filename": file.filename, "path": storage_path}
+
+
+@app.get("/files")
+async def listar_arquivos(auth_phone: AuthPhone):
+    from app.db import get_supabase
+    from app.supabase_ops import get_or_create_firma
+    client = get_supabase()
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco não configurado")
+    firma_id = get_or_create_firma(auth_phone)
+    try:
+        files = client.storage.from_("arquivos").list(f"{firma_id}/files")
+        result = []
+        for f in (files or []):
+            signed = client.storage.from_("arquivos").create_signed_url(
+                f"{firma_id}/files/{f['name']}", 3600
+            )
+            size_kb = round(f.get("metadata", {}).get("size", 0) / 1024, 1)
+            result.append({
+                "name": f["name"],
+                "url": signed["signedURL"],
+                "size": f"{size_kb} KB" if size_kb else ""
+            })
+        return result
+    except Exception as e:
+        return []
+
+
 @app.post("/auth/dev-login")
 async def dev_login(request: Request):
     from app.auth import create_access_token, normalize_phone
