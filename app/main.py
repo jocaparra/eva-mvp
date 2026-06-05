@@ -177,8 +177,18 @@ def run_job_and_notify(
     job = get_job(job_id) or {}
 
     if job.get("status") == JobStatus.DONE.value:
-        filename = job.get("ppt_filename") or f"{company_name}_{doc_type}.pptx"
-        send_download_link(notify_phone, job_id, filename)
+        ppt_path = job.get("ppt_path")
+        try:
+            from app.supabase_ops import get_or_create_firma, criar_deal, salvar_documento
+            firma_id = get_or_create_firma(notify_phone)
+            deal_id  = criar_deal(firma_id, company_name)
+            salvar_documento(deal_id, firma_id, doc_type, ppt_path)
+            from app.whatsapp import send_platform_link
+            send_platform_link(notify_phone, deal_id, company_name)
+        except Exception as e:
+            print(f"[storage] Erro ao salvar no Supabase: {e}")
+            filename = job.get("ppt_filename") or f"{company_name}_{doc_type}.pptx"
+            send_download_link(notify_phone, job_id, filename)
         record_job(notify_phone)
     else:
         send_error(notify_phone, company_name)
@@ -427,50 +437,40 @@ async def ver_deal(deal_id: str, auth_phone: AuthPhone):
 
 
 @app.get("/deal/{deal_id}/download/{doc_id}")
-async def download_documento(deal_id: str, doc_id: str, phone: str):
+async def download_documento(
+    deal_id: str,
+    doc_id: str,
+    request: Request,
+    token: Optional[str] = None,
+):
+    from app.auth import verify_access_token
     from app.db import get_supabase
+    from fastapi.responses import RedirectResponse
+
+    # Aceita token via header ou query string
+    auth_header = request.headers.get("Authorization", "")
+    raw_token = token or (auth_header.replace("Bearer ", "") if auth_header else None)
+    if not raw_token:
+        raise HTTPException(status_code=401, detail="Token necessário")
+
+    phone = verify_access_token(raw_token)
     client = get_supabase()
     if not client:
         raise HTTPException(status_code=503, detail="Banco não configurado")
 
-    # Verifica que o deal pertence à firma do phone
-    firma = (
-        client.table("firmas")
-        .select("id")
-        .eq("whatsapp", phone)
-        .maybe_single()
-        .execute()
-    )
+    firma = client.table("firmas").select("id").eq("whatsapp", phone).maybe_single().execute()
     if not firma.data:
         raise HTTPException(status_code=403, detail="Acesso negado")
 
-    deal = (
-        client.table("deals")
-        .select("id")
-        .eq("id", deal_id)
-        .eq("firma_id", firma.data["id"])
-        .maybe_single()
-        .execute()
-    )
+    deal = client.table("deals").select("id").eq("id", deal_id).eq("firma_id", firma.data["id"]).maybe_single().execute()
     if not deal.data:
         raise HTTPException(status_code=403, detail="Deal não encontrado")
 
-    doc = (
-        client.table("documentos")
-        .select("storage_path, tipo")
-        .eq("id", doc_id)
-        .eq("deal_id", deal_id)
-        .maybe_single()
-        .execute()
-    )
+    doc = client.table("documentos").select("storage_path, tipo").eq("id", doc_id).eq("deal_id", deal_id).maybe_single().execute()
     if not doc.data:
         raise HTTPException(status_code=404, detail="Documento não encontrado")
 
-    # Gera URL assinada válida por 1 hora
-    signed = client.storage.from_("documentos").create_signed_url(
-        doc.data["storage_path"], 3600
-    )
-    from fastapi.responses import RedirectResponse
+    signed = client.storage.from_("documentos").create_signed_url(doc.data["storage_path"], 3600)
     return RedirectResponse(url=signed["signedURL"])
 
 

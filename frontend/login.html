@@ -11,20 +11,24 @@ body { font-family: 'Inter', sans-serif; background: #fff; color: #111; min-heig
 .card { width: 100%; max-width: 380px; }
 .logo { display: flex; align-items: center; gap: 10px; margin-bottom: 36px; }
 .logo-box { width: 36px; height: 36px; background: #111; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-size: 13px; font-weight: 700; }
-.logo-text { font-size: 18px; font-weight: 700; color: #111; }
+.logo-text { font-size: 18px; font-weight: 700; }
 h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
-p { font-size: 14px; color: #666; margin-bottom: 28px; line-height: 1.5; }
-label { display: block; font-size: 12px; font-weight: 600; color: #555; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
-input[type="email"] { width: 100%; padding: 11px 14px; border: 1.5px solid #e8e8e8; border-radius: 8px; font-family: inherit; font-size: 14px; color: #111; outline: none; transition: border-color 0.15s; }
-input[type="email"]:focus { border-color: #111; }
-input[type="email"]::placeholder { color: #bbb; }
-button { width: 100%; margin-top: 14px; padding: 12px; background: #111; color: white; border: none; border-radius: 8px; font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; transition: opacity 0.15s; }
-button:hover { opacity: 0.85; }
+.subtitle { font-size: 14px; color: #666; margin-bottom: 28px; line-height: 1.5; }
+label { display: block; font-size: 11px; font-weight: 600; color: #555; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+input { width: 100%; padding: 11px 14px; border: 1.5px solid #e8e8e8; border-radius: 8px; font-family: inherit; font-size: 14px; color: #111; outline: none; transition: border-color 0.15s; margin-bottom: 14px; }
+input:focus { border-color: #111; }
+input::placeholder { color: #bbb; }
+button { width: 100%; padding: 12px; background: #111; color: white; border: none; border-radius: 8px; font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; transition: opacity 0.15s; }
+button:hover:not(:disabled) { opacity: 0.85; }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
-.msg { margin-top: 16px; padding: 12px 14px; border-radius: 8px; font-size: 13px; display: none; }
+.msg { margin-top: 14px; padding: 11px 14px; border-radius: 8px; font-size: 13px; display: none; line-height: 1.5; }
 .msg.success { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; display: block; }
 .msg.error { background: #fff1f2; color: #e11d48; border: 1px solid #fecdd3; display: block; }
+.step { display: none; }
+.step.active { display: block; }
 .footer { margin-top: 32px; font-size: 12px; color: #bbb; text-align: center; }
+.back { background: transparent; color: #666; border: 1px solid #e8e8e8; margin-top: 8px; }
+.back:hover { background: #f5f5f5; opacity: 1; }
 </style>
 </head>
 <body>
@@ -33,46 +37,123 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
     <div class="logo-box">EV</div>
     <span class="logo-text">EVA</span>
   </div>
-  <h1>Entrar na plataforma</h1>
-  <p>Digite seu e-mail e enviaremos um link de acesso instantâneo.</p>
-  <label for="email">E-mail</label>
-  <input type="email" id="email" placeholder="voce@firma.com.br" autocomplete="email">
-  <button id="btn" onclick="sendLink()">Enviar link de acesso</button>
+
+  <!-- Step 1: número -->
+  <div class="step active" id="step1">
+    <h1>Entrar na plataforma</h1>
+    <p class="subtitle">Digite seu número do WhatsApp. Enviaremos um código de 6 dígitos.</p>
+    <label>Número do WhatsApp</label>
+    <input type="tel" id="phone" placeholder="5511999999999" autocomplete="tel">
+    <button onclick="requestOtp()">Enviar código</button>
+  </div>
+
+  <!-- Step 2: código -->
+  <div class="step" id="step2">
+    <h1>Código enviado</h1>
+    <p class="subtitle" id="otpSubtitle">Digite o código de 6 dígitos enviado para o seu WhatsApp.</p>
+    <label>Código</label>
+    <input type="text" id="otp" placeholder="123456" maxlength="6" autocomplete="one-time-code">
+    <button onclick="verifyOtp()">Entrar</button>
+    <button class="back" onclick="goBack()">← Voltar</button>
+  </div>
+
   <div class="msg" id="msg"></div>
   <div class="footer">EVA by OX Ai · oxai.online</div>
 </div>
-<script>
-const SUPABASE_URL = "COLE_SEU_SUPABASE_URL_AQUI";
-const SUPABASE_ANON = "COLE_SUA_ANON_KEY_AQUI";
 
-async function sendLink() {
-  const email = document.getElementById('email').value.trim();
-  const btn = document.getElementById('btn');
-  const msg = document.getElementById('msg');
-  msg.className = 'msg';
-  if (!email) { showMsg('Digite seu e-mail.', 'error'); return; }
-  btn.disabled = true;
-  btn.textContent = 'Enviando...';
-  try {
-    const res = await fetch(`${SUPABASE_URL}/auth/v1/otp`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON },
-      body: JSON.stringify({ email, options: { emailRedirectTo: `${window.location.origin}/platform.html` } })
-    });
-    if (!res.ok) throw new Error();
-    showMsg('✅ Link enviado! Verifique seu e-mail.', 'success');
-  } catch {
-    showMsg('Erro ao enviar. Tente novamente.', 'error');
-  }
-  btn.disabled = false;
-  btn.textContent = 'Enviar link de acesso';
-}
+<script>
+const API = window.location.origin;
+let phoneValue = '';
+
+// Se já tem token válido, vai direto
+const token = localStorage.getItem('eva_token');
+if (token) window.location.href = '/platform';
+
 function showMsg(text, type) {
   const msg = document.getElementById('msg');
   msg.textContent = text;
   msg.className = `msg ${type}`;
 }
-document.getElementById('email').addEventListener('keydown', e => { if (e.key === 'Enter') sendLink(); });
+
+function clearMsg() {
+  const msg = document.getElementById('msg');
+  msg.className = 'msg';
+}
+
+async function requestOtp() {
+  const phone = document.getElementById('phone').value.replace(/\D/g, '').trim();
+  if (phone.length < 10) { showMsg('Digite um número válido com DDD e país (ex: 5511999999999)', 'error'); return; }
+
+  clearMsg();
+  phoneValue = phone;
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = 'Enviando...';
+
+  try {
+    const res = await fetch(`${API}/auth/otp/request`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Erro ao enviar código');
+    }
+    document.getElementById('otpSubtitle').textContent = `Código enviado para ${phone} via WhatsApp.`;
+    document.getElementById('step1').classList.remove('active');
+    document.getElementById('step2').classList.add('active');
+    setTimeout(() => document.getElementById('otp').focus(), 100);
+  } catch(e) {
+    showMsg(e.message, 'error');
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Enviar código';
+}
+
+async function verifyOtp() {
+  const code = document.getElementById('otp').value.trim();
+  if (code.length !== 6) { showMsg('Digite o código de 6 dígitos', 'error'); return; }
+
+  clearMsg();
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = 'Verificando...';
+
+  try {
+    const res = await fetch(`${API}/auth/otp/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: phoneValue, code })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Código inválido');
+    }
+    const data = await res.json();
+    localStorage.setItem('eva_token', data.access_token);
+    localStorage.setItem('eva_phone', data.phone);
+    window.location.href = '/platform';
+  } catch(e) {
+    showMsg(e.message, 'error');
+    btn.disabled = false;
+    btn.textContent = 'Entrar';
+  }
+}
+
+function goBack() {
+  document.getElementById('step2').classList.remove('active');
+  document.getElementById('step1').classList.add('active');
+  clearMsg();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    if (document.getElementById('step1').classList.contains('active')) requestOtp();
+    else verifyOtp();
+  }
+});
 </script>
 </body>
 </html>

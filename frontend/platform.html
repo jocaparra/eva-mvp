@@ -191,61 +191,50 @@ body { font-family: 'Inter', sans-serif; background: #fff; display: flex; height
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 const API = window.location.origin;
-const SUPABASE_URL = "COLE_SEU_SUPABASE_URL_AQUI";
-const SUPABASE_ANON = "COLE_SUA_ANON_KEY_AQUI";
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
-
-let currentUser = null;
-let currentPhone = null;
+let token = localStorage.getItem('eva_token');
+let phone = localStorage.getItem('eva_phone');
 let pollTimer = null;
 
-// Verifica sessão ao carregar
-async function init() {
-  const { data: { session } } = await sb.auth.getSession();
-  if (!session) {
-    window.location.href = '/login';
-    return;
-  }
-  currentUser = session.user;
+// Redireciona se não autenticado
+if (!token) window.location.href = '/login';
 
-  // Busca phone vinculado ao email no Supabase
-  const res = await fetch(`${API}/me`, {
-    headers: { 'Authorization': `Bearer ${session.access_token}` }
-  });
-  if (res.ok) {
-    const data = await res.json();
-    currentPhone = data.phone;
-    document.getElementById('avatar').textContent = currentUser.email.substring(0,2).toUpperCase();
-  }
-
-  loadDeals(session.access_token);
-}
+// Mostra iniciais no avatar
+if (phone) document.getElementById('avatar').textContent = phone.slice(-4);
 
 function logout() {
-  sb.auth.signOut().then(() => window.location.href = '/login');
+  localStorage.removeItem('eva_token');
+  localStorage.removeItem('eva_phone');
+  window.location.href = '/login';
 }
 
-async function loadDeals(token) {
-  if (!token) {
-    const { data: { session } } = await sb.auth.getSession();
-    token = session?.access_token;
+async function apiFetch(url, opts = {}) {
+  const res = await fetch(url, {
+    ...opts,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      ...(opts.headers || {})
+    }
+  });
+  if (res.status === 401) {
+    localStorage.removeItem('eva_token');
+    window.location.href = '/login';
   }
-  if (!token) return;
+  return res;
+}
+
+async function loadDeals() {
   try {
-    const res = await fetch(`${API}/deals`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    if (res.status === 401) { window.location.href = '/login'; return; }
+    const res = await apiFetch(`${API}/deals`);
     if (!res.ok) return;
     const deals = await res.json();
-    renderDealList(deals, token);
+    renderDealList(deals);
   } catch(e) { console.error(e); }
 }
 
-function renderDealList(deals, token) {
+function renderDealList(deals) {
   const list = document.getElementById('dealList');
   if (!deals.length) {
     list.innerHTML = '<div class="empty-state">Nenhum deal ainda.<br>Clique em + Novo para começar.</div>';
@@ -254,92 +243,88 @@ function renderDealList(deals, token) {
   const typeTag = { CIM: 'tag-cim', VALUATION: 'tag-val', DUE_DILIGENCE: 'tag-dd' };
   const typeLabel = { CIM: 'CIM', VALUATION: 'Valuation', DUE_DILIGENCE: 'Due Diligence' };
   list.innerHTML = deals.map(d => `
-    <div class="deal-item" onclick="selectDeal('${d.id}', '${d.nome}', '${d.document_type || 'CIM'}')">
-      <div class="deal-title">${d.nome}</div>
+    <div class="deal-item" onclick="selectDeal('${d.id}','${escHtml(d.nome)}','${d.document_type||'CIM'}')">
+      <div class="deal-title">${escHtml(d.nome)}</div>
       <div class="deal-meta">
         <span class="deal-time">${formatDate(d.criado_em)}</span>
-        <span class="tag ${typeTag[d.document_type] || 'tag-dd'}">${typeLabel[d.document_type] || d.document_type}</span>
-        ${d.documentos && d.documentos.length ? '<span class="tag tag-ok">Pronto</span>' : '<span class="tag tag-proc">Processando</span>'}
+        <span class="tag ${typeTag[d.document_type]||'tag-dd'}">${typeLabel[d.document_type]||d.document_type}</span>
+        ${d.documentos&&d.documentos.length?'<span class="tag tag-ok">Pronto</span>':'<span class="tag tag-proc">Processando</span>'}
       </div>
     </div>
   `).join('');
 }
 
+function escHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
 function formatDate(iso) {
   if (!iso) return '';
-  const d = new Date(iso);
-  const now = new Date();
-  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
-  return d.toLocaleDateString('pt-BR', {day:'2-digit',month:'short'});
-}
-
-async function getToken() {
-  const { data: { session } } = await sb.auth.getSession();
-  return session?.access_token;
+  const d = new Date(iso), now = new Date();
+  if (d.toDateString()===now.toDateString()) return d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'short'});
 }
 
 async function selectDeal(dealId, nome, type) {
-  const token = await getToken();
   document.querySelectorAll('.deal-item').forEach(el => el.classList.remove('active'));
   event.currentTarget.classList.add('active');
 
-  const typeLabel = { CIM: 'CIM', VALUATION: 'Valuation', DUE_DILIGENCE: 'Due Diligence' };
-  const typeTag = { CIM: 'tag-cim', VALUATION: 'tag-val', DUE_DILIGENCE: 'tag-dd' };
+  const typeLabel = { CIM:'CIM', VALUATION:'Valuation', DUE_DILIGENCE:'Due Diligence' };
+  const typeTag   = { CIM:'tag-cim', VALUATION:'tag-val', DUE_DILIGENCE:'tag-dd' };
 
-  document.getElementById('emptyMain').style.display = 'none';
-  const chatArea = document.getElementById('chatArea');
-  chatArea.style.display = 'flex';
-  chatArea.style.flexDirection = 'column';
-  chatArea.style.flex = '1';
-
-  document.getElementById('chatTitle').textContent = `${typeLabel[type] || type} — ${nome}`;
-  document.getElementById('chatTags').innerHTML = `
-    <span class="tag ${typeTag[type] || 'tag-dd'}">${typeLabel[type] || type}</span>
-  `;
+  showChatArea();
+  document.getElementById('chatTitle').textContent = `${typeLabel[type]||type} — ${nome}`;
+  document.getElementById('chatTags').innerHTML = `<span class="tag ${typeTag[type]||'tag-dd'}">${typeLabel[type]||type}</span>`;
+  document.getElementById('messages').innerHTML = '';
 
   try {
-    const res = await fetch(`${API}/deal/${dealId}`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
+    const res = await apiFetch(`${API}/deal/${dealId}`);
     if (!res.ok) return;
     const data = await res.json();
     if (data.documentos && data.documentos.length) {
-      showDocument(data.documentos[0], dealId, nome, type);
+      showDocument(data.documentos[0], dealId, nome);
+      addMessage(`✅ Documento <strong>${nome}</strong> disponível para download.`, 'eva');
+    } else {
+      addMessage('Este deal ainda está sendo processado.', 'eva');
     }
   } catch(e) { console.error(e); }
 }
 
-function showDocument(doc, dealId, nome, type) {
-  document.getElementById('rightPanel').style.display = 'flex';
-  document.getElementById('rightPanel').style.flexDirection = 'column';
+function showDocument(doc, dealId, nome) {
+  const right = document.getElementById('rightPanel');
+  right.style.display = 'flex';
+  right.style.flexDirection = 'column';
   document.getElementById('docName').textContent = `${nome}.pptx`;
-  const downloadUrl = `${API}/deal/${dealId}/download/${doc.id}`;
-  document.getElementById('docDownloadLink').href = downloadUrl;
-  document.getElementById('downloadBtn').style.display = 'block';
+  document.getElementById('docDownloadLink').href = `${API}/deal/${dealId}/download/${doc.id}?token=${token}`;
+  document.getElementById('downloadBtn').style.display = 'inline-block';
   document.getElementById('docBody').innerHTML = `
     <div class="doc-h1">Documento gerado por EVA</div>
-    <div class="doc-p">O documento <strong>${nome}</strong> foi gerado com sucesso. Clique em Download para abrir o arquivo completo.</div>
-    <div class="doc-p">Tipo: <strong>${type}</strong><br>Gerado em: <strong>${formatDate(doc.criado_em)}</strong></div>
-    <div class="doc-h1">Acesso seguro</div>
-    <div class="doc-p">Armazenado em ambiente isolado para sua firma. Link de download expira em 1 hora.</div>
+    <div class="doc-p"><strong>${nome}</strong> foi gerado com sucesso e está armazenado com segurança.</div>
+    <div class="doc-p">Tipo: <strong>${doc.tipo}</strong><br>Gerado em: <strong>${formatDate(doc.criado_em)}</strong></div>
+    <div class="doc-h1">Download</div>
+    <div class="doc-p">Clique em <strong>Download</strong> no topo para baixar o arquivo .pptx completo. O link expira em 1 hora.</div>
   `;
 }
 
-function showNewDeal() {
+function showChatArea() {
   document.getElementById('emptyMain').style.display = 'none';
-  const chatArea = document.getElementById('chatArea');
-  chatArea.style.display = 'flex';
-  chatArea.style.flexDirection = 'column';
-  chatArea.style.flex = '1';
+  const chat = document.getElementById('chatArea');
+  chat.style.display = 'flex';
+  chat.style.flexDirection = 'column';
+  chat.style.flex = '1';
+}
+
+function showNewDeal() {
+  document.querySelectorAll('.deal-item').forEach(el => el.classList.remove('active'));
+  showChatArea();
   document.getElementById('chatTitle').textContent = 'Novo documento';
   document.getElementById('chatTags').innerHTML = '';
+  document.getElementById('rightPanel').style.display = 'none';
   document.getElementById('messages').innerHTML = `
     <div class="msg msg-eva">
-      <div class="bubble">Olá! Sou a EVA. Me diga qual documento quer gerar.<br><br>Exemplos:<br>• <em>CIM da Nubank</em><br>• <em>Valuation da Apple</em><br>• <em>Due diligence da Loggi</em></div>
+      <div class="bubble">Olá! Sou a EVA. Me diga qual documento quer gerar.<br><br>
+      Exemplos:<br>• <em>CIM da Nubank</em><br>• <em>Valuation da Apple</em><br>• <em>Due diligence da Loggi</em></div>
       <div class="msg-time">agora</div>
-    </div>
-  `;
-  document.getElementById('rightPanel').style.display = 'none';
+    </div>`;
+  document.getElementById('downloadBtn').style.display = 'none';
   document.getElementById('msgInput').focus();
 }
 
@@ -348,18 +333,13 @@ async function sendMsg() {
   const text = input.value.trim();
   if (!text) return;
   input.value = '';
-  const token = await getToken();
 
   addMessage(text, 'user');
   addMessage('Processando seu pedido...', 'eva');
 
   try {
-    const res = await fetch(`${API}/jobs/web`, {
+    const res = await apiFetch(`${API}/jobs/web`, {
       method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
       body: JSON.stringify({ message: text })
     });
     if (!res.ok) {
@@ -367,29 +347,28 @@ async function sendMsg() {
       throw new Error(err.detail || 'Erro ao criar job');
     }
     const job = await res.json();
-    updateLastMessage(`⏳ Gerando *${job.company_name}*... Aguarde 2-5 minutos.`);
+    updateLastMsg(`⏳ Gerando <strong>${job.company_name}</strong>... Aguarde 2–5 minutos.`);
     showTasksCard(job.id);
-    pollJob(job.id, job.company_name, job.document_type, token);
-    loadDeals(token);
+    pollJob(job.id, job.company_name);
   } catch(e) {
-    updateLastMessage(`❌ ${e.message}`);
+    updateLastMsg(`❌ ${e.message}`);
   }
 }
 
-function addMessage(text, type) {
+function addMessage(html, type) {
   const msgs = document.getElementById('messages');
   const div = document.createElement('div');
   div.className = `msg msg-${type}`;
-  div.innerHTML = `<div class="bubble">${text}</div><div class="msg-time">${new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</div>`;
+  div.innerHTML = `<div class="bubble">${html}</div><div class="msg-time">${new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</div>`;
   msgs.appendChild(div);
   msgs.scrollTop = msgs.scrollHeight;
 }
 
-function updateLastMessage(text) {
+function updateLastMsg(html) {
   const msgs = document.getElementById('messages');
   const items = msgs.querySelectorAll('.msg-eva');
-  const last = items[items.length - 1]?.querySelector('.bubble');
-  if (last) last.textContent = text;
+  const last = items[items.length-1]?.querySelector('.bubble');
+  if (last) last.innerHTML = html;
 }
 
 function showTasksCard(jobId) {
@@ -405,52 +384,49 @@ function showTasksCard(jobId) {
       <div class="task-row"><div class="task-dot t-wait" id="t3-${jobId}">○</div><span>Geração do documento</span></div>
       <div class="task-row"><div class="task-dot t-wait" id="t4-${jobId}">○</div><span>Validação QA</span></div>
     </div>
-    <div class="msg-time">${new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</div>
-  `;
+    <div class="msg-time">${new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</div>`;
   msgs.appendChild(card);
   msgs.scrollTop = msgs.scrollHeight;
 }
 
-function pollJob(jobId, companyName, docType, token) {
+function pollJob(jobId, companyName) {
   if (pollTimer) clearInterval(pollTimer);
   let step = 1;
   pollTimer = setInterval(async () => {
     try {
       step = Math.min(step + 1, 4);
       for (let i = 1; i < step; i++) {
-        const dot = document.getElementById(`t${i}-${jobId}`);
-        if (dot) { dot.className = 'task-dot t-done'; dot.textContent = '✓'; }
+        const d = document.getElementById(`t${i}-${jobId}`);
+        if (d && !d.classList.contains('t-done')) { d.className='task-dot t-done'; d.textContent='✓'; }
       }
-      const dot = document.getElementById(`t${step}-${jobId}`);
-      if (dot && !dot.classList.contains('t-done')) { dot.className = 'task-dot t-run'; dot.textContent = '▶'; }
+      const cur = document.getElementById(`t${step}-${jobId}`);
+      if (cur && !cur.classList.contains('t-done')) { cur.className='task-dot t-run'; cur.textContent='▶'; }
 
-      const res = await fetch(`${API}/jobs/${jobId}/status`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const res = await apiFetch(`${API}/jobs/${jobId}/status`);
       if (!res.ok) return;
       const job = await res.json();
 
       if (job.status === 'done') {
         clearInterval(pollTimer);
-        for (let i = 1; i <= 4; i++) {
+        for (let i=1;i<=4;i++) {
           const d = document.getElementById(`t${i}-${jobId}`);
-          if (d) { d.className = 'task-dot t-done'; d.textContent = '✓'; }
+          if (d) { d.className='task-dot t-done'; d.textContent='✓'; }
         }
-        addMessage(`✅ *${companyName}* está pronto! Aparecerá na lista em instantes.`, 'eva');
-        setTimeout(() => loadDeals(token), 2000);
+        addMessage(`✅ <strong>${companyName}</strong> está pronto! Aparecerá na lista em instantes.`, 'eva');
+        setTimeout(loadDeals, 2000);
       }
       if (job.status === 'error') {
         clearInterval(pollTimer);
-        addMessage(`❌ Erro: ${job.error || 'tente novamente.'}`, 'eva');
+        addMessage(`❌ Erro: ${job.error||'tente novamente.'}`, 'eva');
       }
     } catch(e) { console.error(e); }
   }, 4000);
 }
 
-document.getElementById('msgInput').addEventListener('keydown', e => { if (e.key === 'Enter') sendMsg(); });
+document.getElementById('msgInput').addEventListener('keydown', e => { if(e.key==='Enter') sendMsg(); });
 
 // Inicia
-init();
+loadDeals();
 </script>
 </body>
 </html>
