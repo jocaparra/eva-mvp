@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, UploadFile
@@ -47,7 +47,27 @@ from app.repositories.workspace_artifact import (
     get_artifact_for_owner,
     upsert_artifact_from_pipeline,
 )
+from app.repositories.conversation import (
+    ConversationAccessDeniedError,
+    ConversationNotFoundError,
+    add_message,
+    create_conversation,
+    delete_conversation,
+    ensure_deal_for_conversation,
+    get_conversation_for_owner,
+    list_conversations,
+    update_conversation_title,
+)
+from app.schemas.conversation import (
+    ConversationCreate,
+    ConversationDetail,
+    ConversationSummary,
+    ConversationUpdate,
+    MessageCreate,
+    MessageResponse,
+)
 from app.services.document_ingestion import ingest_deal_document
+from app.services.conversation_jobs import finalize_conversation_job, prepare_conversation_job
 from app.utils.client_documents import process_web_document_upload
 from app.utils.doc_cache import cleanup_expired, clear_context, get_context, get_context_meta
 from app.utils.template import save_client_template
@@ -83,26 +103,36 @@ def platform_page():
 
 @app.get("/me")
 async def get_me(auth_phone: AuthPhone):
-    return {"phone": auth_phone}
+    from app.db import get_supabase
+
+    return {
+        "phone": auth_phone,
+        "storage_enabled": get_supabase() is not None,
+    }
 
 
-@app.post("/upload")
+@app.post("/files/upload")
 async def upload_arquivo(auth_phone: AuthPhone, file: UploadFile = File(...)):
+    """Upload para Supabase Storage (arquivos de referência do usuário)."""
     from app.db import get_supabase
     from app.supabase_ops import get_or_create_firma
+
     if not file.filename:
         raise HTTPException(status_code=400, detail="Arquivo sem nome")
-    content = await file.read()
     client = get_supabase()
     if not client:
-        raise HTTPException(status_code=503, detail="Banco não configurado")
+        raise HTTPException(
+            status_code=409,
+            detail="Armazenamento de arquivos não configurado.",
+        )
+    content = await file.read()
     firma_id = get_or_create_firma(auth_phone)
     storage_path = f"{firma_id}/files/{file.filename}"
     try:
         client.storage.from_("arquivos").upload(
             path=storage_path,
             file=content,
-            file_options={"content-type": file.content_type or "application/octet-stream"}
+            file_options={"content-type": file.content_type or "application/octet-stream"},
         )
     except Exception as e:
         if "already exists" in str(e).lower():
@@ -110,10 +140,10 @@ async def upload_arquivo(auth_phone: AuthPhone, file: UploadFile = File(...)):
             client.storage.from_("arquivos").upload(
                 path=storage_path,
                 file=content,
-                file_options={"content-type": file.content_type or "application/octet-stream"}
+                file_options={"content-type": file.content_type or "application/octet-stream"},
             )
         else:
-            raise HTTPException(status_code=500, detail=str(e))
+            raise HTTPException(status_code=500, detail=str(e)) from e
     return {"status": "ok", "filename": file.filename, "path": storage_path}
 
 
@@ -121,9 +151,14 @@ async def upload_arquivo(auth_phone: AuthPhone, file: UploadFile = File(...)):
 async def listar_arquivos(auth_phone: AuthPhone):
     from app.db import get_supabase
     from app.supabase_ops import get_or_create_firma
+
     client = get_supabase()
     if not client:
-        raise HTTPException(status_code=503, detail="Banco não configurado")
+        return {
+            "storage_enabled": False,
+            "files": [],
+            "message": "Armazenamento de arquivos não configurado.",
+        }
     firma_id = get_or_create_firma(auth_phone)
     try:
         files = client.storage.from_("arquivos").list(f"{firma_id}/files")
@@ -136,11 +171,11 @@ async def listar_arquivos(auth_phone: AuthPhone):
             result.append({
                 "name": f["name"],
                 "url": signed["signedURL"],
-                "size": f"{size_kb} KB" if size_kb else ""
+                "size": f"{size_kb} KB" if size_kb else "",
             })
-        return result
-    except Exception as e:
-        return []
+        return {"storage_enabled": True, "files": result}
+    except Exception:
+        return {"storage_enabled": True, "files": []}
 
 
 @app.post("/auth/dev-login")
@@ -228,6 +263,168 @@ def obter_deal_workspace(
         raise HTTPException(status_code=403, detail="Acesso negado")
 
     return to_deal_state(deal)
+
+
+def _conversation_http_errors(exc: Exception) -> None:
+    if isinstance(exc, ConversationNotFoundError):
+        raise HTTPException(status_code=404, detail="Conversa não encontrada")
+    if isinstance(exc, ConversationAccessDeniedError):
+        raise HTTPException(status_code=403, detail="Acesso negado")
+    raise exc
+
+
+@app.post("/conversations", response_model=ConversationSummary, status_code=201)
+def criar_conversa(
+    request: ConversationCreate,
+    auth_phone: AuthPhone,
+    db: Session = Depends(get_db),
+):
+    title = (request.title or "").strip() or "Nova conversa"
+    conv = create_conversation(db, owner_phone=auth_phone, title=title)
+    return ConversationSummary.model_validate(conv)
+
+
+@app.get("/conversations", response_model=List[ConversationSummary])
+def listar_conversas(auth_phone: AuthPhone, db: Session = Depends(get_db)):
+    convs = list_conversations(db, auth_phone)
+    return [ConversationSummary.model_validate(c) for c in convs]
+
+
+@app.get("/conversations/{conversation_id}", response_model=ConversationDetail)
+def obter_conversa(
+    conversation_id: str,
+    auth_phone: AuthPhone,
+    db: Session = Depends(get_db),
+):
+    from uuid import UUID
+
+    try:
+        conv_uuid = UUID(conversation_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="ID inválido") from exc
+    try:
+        conv = get_conversation_for_owner(db, conv_uuid, auth_phone)
+    except (ConversationNotFoundError, ConversationAccessDeniedError) as exc:
+        _conversation_http_errors(exc)
+    return ConversationDetail.model_validate(conv)
+
+
+@app.post("/conversations/{conversation_id}/messages", response_model=MessageResponse, status_code=201)
+def anexar_mensagem(
+    conversation_id: str,
+    request: MessageCreate,
+    auth_phone: AuthPhone,
+    db: Session = Depends(get_db),
+):
+    from uuid import UUID
+
+    if request.role not in ("user", "assistant"):
+        raise HTTPException(status_code=400, detail="role deve ser user ou assistant")
+    try:
+        conv_uuid = UUID(conversation_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="ID inválido") from exc
+    try:
+        msg = add_message(
+            db,
+            conversation_id=conv_uuid,
+            owner_phone=auth_phone,
+            role=request.role,
+            content=request.content.strip(),
+            job_id=request.job_id,
+        )
+    except (ConversationNotFoundError, ConversationAccessDeniedError) as exc:
+        _conversation_http_errors(exc)
+    return MessageResponse.model_validate(msg)
+
+
+@app.patch("/conversations/{conversation_id}", response_model=ConversationSummary)
+def renomear_conversa(
+    conversation_id: str,
+    request: ConversationUpdate,
+    auth_phone: AuthPhone,
+    db: Session = Depends(get_db),
+):
+    from uuid import UUID
+
+    try:
+        conv_uuid = UUID(conversation_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="ID inválido") from exc
+    try:
+        conv = update_conversation_title(db, conv_uuid, auth_phone, request.title)
+    except (ConversationNotFoundError, ConversationAccessDeniedError) as exc:
+        _conversation_http_errors(exc)
+    return ConversationSummary.model_validate(conv)
+
+
+@app.delete("/conversations/{conversation_id}", status_code=204)
+def apagar_conversa(
+    conversation_id: str,
+    auth_phone: AuthPhone,
+    db: Session = Depends(get_db),
+):
+    from uuid import UUID
+
+    try:
+        conv_uuid = UUID(conversation_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="ID inválido") from exc
+    try:
+        delete_conversation(db, conv_uuid, auth_phone)
+    except (ConversationNotFoundError, ConversationAccessDeniedError) as exc:
+        _conversation_http_errors(exc)
+
+
+@app.post("/conversations/{conversation_id}/documents")
+async def upload_conversation_document(
+    conversation_id: str,
+    auth_phone: AuthPhone,
+    db: Session = Depends(get_db),
+    file: UploadFile = File(...),
+):
+    """Ingestão no deal da conversa — cria deal se necessário."""
+    from uuid import UUID
+
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Arquivo sem nome")
+    try:
+        conv_uuid = UUID(conversation_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="ID inválido") from exc
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Arquivo vazio")
+
+    try:
+        conv = get_conversation_for_owner(db, conv_uuid, auth_phone)
+        company = conv.title if conv.title != "Nova conversa" else "Data room"
+        deal_uuid = ensure_deal_for_conversation(db, conv_uuid, auth_phone, company)
+        document, chunk_count = ingest_deal_document(
+            db,
+            deal_id=deal_uuid,
+            owner_phone=auth_phone,
+            filename=file.filename,
+            content=content,
+            mime_type=file.content_type or "",
+        )
+    except ConversationNotFoundError:
+        raise HTTPException(status_code=404, detail="Conversa não encontrada")
+    except ConversationAccessDeniedError:
+        raise HTTPException(status_code=403, detail="Acesso negado")
+    except DealNotFoundError:
+        raise HTTPException(status_code=404, detail="Deal não encontrado")
+    except DealAccessDeniedError:
+        raise HTTPException(status_code=403, detail="Acesso negado")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return {
+        "document": WorkspaceDocumentResponse.model_validate(document),
+        "chunk_count": chunk_count,
+        "deal_id": str(deal_uuid),
+    }
 
 
 @app.get("/deals/{deal_id}/artifacts/{artifact_id}", response_model=ArtifactReviewResponse)
@@ -459,6 +656,7 @@ class CreateJobRequest(BaseModel):
 
 class WebJobRequest(BaseModel):
     message: str = Field(..., min_length=1, examples=["Valuation da Apple"])
+    conversation_id: Optional[str] = None
 
 
 class UploadProcessedResponse(BaseModel):
@@ -479,6 +677,8 @@ class JobRecord(BaseModel):
     qa_passed: Optional[bool] = None
     qa_issues: Optional[list[str]] = None
     error: Optional[str] = None
+    conversation_id: Optional[str] = None
+    deal_id: Optional[str] = None
 
 
 class DealGenerateRequest(BaseModel):
@@ -589,6 +789,23 @@ def _run_job(
             resource_id=job_id,
             metadata={"qa_passed": result.get("qa_passed")},
         )
+        conversation_id = (job or {}).get("conversation_id") or ""
+        if conversation_id:
+            from uuid import UUID
+
+            try:
+                with session_scope() as db:
+                    finalize_conversation_job(
+                        db,
+                        conversation_id=UUID(conversation_id),
+                        owner_phone=phone,
+                        company_name=company_name,
+                        job_id=job_id,
+                        success=True,
+                        deal_id=deal_id or (job or {}).get("deal_id") or "",
+                    )
+            except Exception as exc:
+                print(f"[conversation] Falha ao finalizar job {job_id}: {exc}")
     except Exception as exc:
         error_msg = str(exc)
         if any(token in error_msg.lower() for token in ("429", "quota", "rate limit")):
@@ -597,6 +814,24 @@ def _run_job(
                 "Aguarde cerca de 1 minuto e tente novamente."
             )
         update_job(job_id, status=JobStatus.ERROR.value, error=error_msg)
+        conversation_id = (job or {}).get("conversation_id") or ""
+        if conversation_id:
+            from uuid import UUID
+
+            try:
+                with session_scope() as db:
+                    finalize_conversation_job(
+                        db,
+                        conversation_id=UUID(conversation_id),
+                        owner_phone=phone,
+                        company_name=company_name,
+                        job_id=job_id,
+                        success=False,
+                        error=error_msg,
+                        deal_id=(job or {}).get("deal_id") or "",
+                    )
+            except Exception as exc:
+                print(f"[conversation] Falha ao registrar erro {job_id}: {exc}")
         log_action(
             phone,
             "job_error",
@@ -647,6 +882,7 @@ def run_web_job_and_notify(
     company_name: str,
     doc_type: str,
     phone: str,
+    conversation_id: str = "",
 ) -> None:
     _run_job(job_id, company_name, doc_type, phone)
     job = get_job(job_id) or {}
@@ -684,7 +920,10 @@ async def submit_web_job(
     request: WebJobRequest,
     background_tasks: BackgroundTasks,
     auth_phone: AuthPhone,
+    db: Session = Depends(get_db),
 ):
+    from uuid import UUID
+
     message = request.message.strip()
     if not message:
         raise HTTPException(status_code=400, detail="Mensagem vazia.")
@@ -700,12 +939,43 @@ async def submit_web_job(
     if not await check_job_limit(auth_phone):
         raise HTTPException(status_code=429, detail="Limite mensal de documentos atingido.")
 
+    deal_id = ""
+    conversation_id = request.conversation_id or ""
+    if conversation_id:
+        try:
+            conv_uuid = UUID(conversation_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="conversation_id inválido") from exc
+        try:
+            get_conversation_for_owner(db, conv_uuid, auth_phone)
+        except ConversationNotFoundError:
+            raise HTTPException(status_code=404, detail="Conversa não encontrada")
+        except ConversationAccessDeniedError:
+            raise HTTPException(status_code=403, detail="Acesso negado")
+
     job_id = create_job(
         company_name,
         document_type,
         phone=auth_phone,
         client_id=auth_phone,
+        deal_id=deal_id,
+        conversation_id=conversation_id,
     )
+
+    if conversation_id:
+        try:
+            deal_id = prepare_conversation_job(
+                db,
+                conversation_id=UUID(conversation_id),
+                owner_phone=auth_phone,
+                company_name=company_name,
+                user_message=message,
+                job_id=job_id,
+            )
+            update_job(job_id, deal_id=deal_id)
+        except (ConversationNotFoundError, ConversationAccessDeniedError) as exc:
+            _conversation_http_errors(exc)
+
     log_job_created(auth_phone, document_type, job_id)
 
     background_tasks.add_task(
@@ -714,11 +984,16 @@ async def submit_web_job(
         company_name=company_name,
         doc_type=document_type,
         phone=auth_phone,
+        conversation_id=conversation_id,
     )
 
     job = get_job(job_id, phone=auth_phone)
     if not job:
         raise HTTPException(status_code=500, detail="Failed to create job")
+    if deal_id:
+        job["deal_id"] = deal_id
+    if conversation_id:
+        job["conversation_id"] = conversation_id
     return JobRecord(**job)
 
 

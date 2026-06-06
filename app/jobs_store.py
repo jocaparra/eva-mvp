@@ -30,6 +30,7 @@ def _row_to_job(row: dict[str, Any]) -> dict[str, Any]:
         "error": row.get("error"),
         "whatsapp_phone": row.get("phone"),
         "deal_id": row.get("deal_id") or "",
+        "conversation_id": row.get("conversation_id") or "",
     }
 
 
@@ -40,6 +41,7 @@ def create_job(
     phone: str = "",
     client_id: str = "default",
     deal_id: str = "",
+    conversation_id: str = "",
 ) -> str:
     job_id = str(uuid.uuid4())
     phone_value = phone or client_id or "default"
@@ -52,6 +54,8 @@ def create_job(
     }
     if deal_id:
         payload["deal_id"] = deal_id
+    if conversation_id:
+        payload["conversation_id"] = conversation_id
 
     client = get_supabase()
     if client:

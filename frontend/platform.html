@@ -112,16 +112,28 @@ body { font-family: 'Inter', sans-serif; background: #fff; display: flex; height
 <!-- SIDEBAR -->
 <div class="sidebar">
   <div class="s-logo">EV</div>
-  <div class="s-icon active" id="btn-deals" title="Deals" onclick="showPanel('deals')">📄</div>
+  <div class="s-icon active" id="btn-conversations" title="Conversas" onclick="showPanel('conversations')">💬</div>
+  <div class="s-icon" id="btn-deals" title="Deals" onclick="showPanel('deals')">📄</div>
   <div class="s-icon" id="btn-search" title="Buscar" onclick="showPanel('search')">🔍</div>
-  <div class="s-icon" id="btn-files" title="Arquivos" onclick="showPanel('files')">📁</div>
+  <div class="s-icon" id="btn-files" title="Arquivos" onclick="showPanel('files')" style="display:none">📁</div>
   <div class="s-spacer"></div>
   <div class="s-icon" id="btn-settings" title="Configurações" onclick="showPanel('settings')">⚙️</div>
   <div class="s-avatar" id="avatar" title="Sair" onclick="logout()">JO</div>
 </div>
 
+<!-- PAINEL CONVERSAS -->
+<div class="left" id="panel-conversations">
+  <div class="left-header">
+    <h2>Conversas</h2>
+    <button class="new-btn" onclick="newConversation()">+ Novo chat</button>
+  </div>
+  <div class="deal-list" id="conversationList">
+    <div class="empty-state">Nenhuma conversa ainda.<br>Clique em + Novo chat.</div>
+  </div>
+</div>
+
 <!-- PAINEL DEALS -->
-<div class="left" id="panel-deals">
+<div class="left" id="panel-deals" style="display:none">
   <div class="left-header">
     <h2>Deals</h2>
     <button class="new-btn" onclick="showNewDeal()">+ Novo</button>
@@ -209,6 +221,9 @@ body { font-family: 'Inter', sans-serif; background: #fff; display: flex; height
 
     <div class="input-area">
       <div class="input-wrap">
+        <button type="button" onclick="document.getElementById('chatFileInput').click()" title="Anexar documento ao data room"
+          style="border:none;background:transparent;cursor:pointer;font-size:18px;padding:0 4px">📎</button>
+        <input type="file" id="chatFileInput" style="display:none" accept=".pdf,.docx,.pptx,.xlsx" onchange="uploadChatDocument(this.files[0])">
         <input type="text" id="msgInput" placeholder="Peça um CIM, Valuation ou Due Diligence...">
         <span class="model-tag">EVA</span>
         <button class="send-btn" onclick="sendMsg()">↑</button>
@@ -252,6 +267,8 @@ const API = window.location.origin;
 let token = localStorage.getItem('eva_token');
 let phone = localStorage.getItem('eva_phone');
 let pollTimer = null;
+let currentConversationId = null;
+let currentDealId = null;
 
 // Redireciona se não autenticado
 if (!token) window.location.href = '/login';
@@ -279,6 +296,91 @@ async function apiFetch(url, opts = {}) {
     window.location.href = '/login';
   }
   return res;
+}
+
+async function loadConversations() {
+  try {
+    const res = await apiFetch(`${API}/conversations`);
+    if (!res.ok) return;
+    renderConversationList(await res.json());
+  } catch (e) { console.error(e); }
+}
+
+function renderConversationList(conversations) {
+  const list = document.getElementById('conversationList');
+  if (!conversations.length) {
+    list.innerHTML = '<div class="empty-state">Nenhuma conversa ainda.<br>Clique em + Novo chat.</div>';
+    return;
+  }
+  list.innerHTML = conversations.map(c => `
+    <div class="deal-item ${c.id === currentConversationId ? 'active' : ''}" onclick="selectConversation('${c.id}')">
+      <div class="deal-title">${escHtml(c.title)}</div>
+      <div class="deal-meta"><span class="deal-time">${formatDate(c.updated_at)}</span></div>
+    </div>`).join('');
+}
+
+async function newConversation() {
+  const res = await apiFetch(`${API}/conversations`, { method: 'POST', body: JSON.stringify({}) });
+  if (!res.ok) return;
+  const conv = await res.json();
+  currentConversationId = conv.id;
+  currentDealId = conv.deal_id || null;
+  showChatArea();
+  document.getElementById('chatTitle').textContent = conv.title;
+  document.getElementById('chatTags').innerHTML = '';
+  document.getElementById('messages').innerHTML = `
+    <div class="msg msg-eva">
+      <div class="bubble">Olá! Sou a EVA. Me diga qual documento quer gerar ou anexe um PDF ao data room (📎).<br><br>
+      Exemplos:<br>• <em>CIM da Nubank</em><br>• <em>Valuation da Apple</em></div>
+      <div class="msg-time">agora</div>
+    </div>`;
+  document.getElementById('rightPanel').style.display = 'none';
+  document.getElementById('downloadBtn').style.display = 'none';
+  showPanel('conversations');
+  loadConversations();
+  document.getElementById('msgInput').focus();
+}
+
+async function selectConversation(id) {
+  currentConversationId = id;
+  try {
+    const res = await apiFetch(`${API}/conversations/${id}`);
+    if (!res.ok) return;
+    const conv = await res.json();
+    currentDealId = conv.deal_id || null;
+    showChatArea();
+    document.getElementById('chatTitle').textContent = conv.title;
+    document.getElementById('chatTags').innerHTML = '';
+    document.getElementById('messages').innerHTML = '';
+    conv.messages.forEach(m => addMessage(m.content, m.role === 'user' ? 'user' : 'eva', false));
+    if (currentDealId) await loadDealPanel(currentDealId, conv.title);
+    showPanel('conversations');
+    loadConversations();
+  } catch (e) { console.error(e); }
+}
+
+async function loadDealPanel(dealId, nome) {
+  try {
+    const res = await apiFetch(`${API}/deals/${dealId}`);
+    if (!res.ok) return;
+    const deal = await res.json();
+    const artifact = (deal.artifacts || []).find(a => a.file_path) || (deal.artifacts || [])[0];
+    if (artifact && artifact.file_path) {
+      document.getElementById('downloadBtn').style.display = 'inline-block';
+      document.getElementById('downloadBtn').onclick = () => window.open(`${API}/jobs/${artifact.id}/download`, '_blank');
+      document.getElementById('rightPanel').style.display = 'flex';
+      document.getElementById('docName').textContent = artifact.file_path.split('/').pop();
+    }
+  } catch (e) { console.error(e); }
+}
+
+async function ensureConversation() {
+  if (currentConversationId) return currentConversationId;
+  const res = await apiFetch(`${API}/conversations`, { method: 'POST', body: JSON.stringify({}) });
+  if (!res.ok) throw new Error('Não foi possível criar conversa');
+  const conv = await res.json();
+  currentConversationId = conv.id;
+  return conv.id;
 }
 
 async function loadDeals() {
@@ -390,34 +492,36 @@ async function sendMsg() {
   if (!text) return;
   input.value = '';
 
-  addMessage(text, 'user');
-  addMessage('Processando seu pedido...', 'eva');
-
   try {
+    await ensureConversation();
+    showChatArea();
+
     const res = await apiFetch(`${API}/jobs/web`, {
       method: 'POST',
-      body: JSON.stringify({ message: text })
+      body: JSON.stringify({ message: text, conversation_id: currentConversationId })
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.detail || 'Erro ao criar job');
     }
     const job = await res.json();
-    updateLastMsg(`⏳ Gerando <strong>${job.company_name}</strong>... Aguarde 2–5 minutos.`);
+    if (job.deal_id) currentDealId = job.deal_id;
+    addMessage(text, 'user');
     showTasksCard(job.id);
     pollJob(job.id, job.company_name);
+    loadConversations();
   } catch(e) {
-    updateLastMsg(`❌ ${e.message}`);
+    addMessage(`❌ ${e.message}`, 'eva');
   }
 }
 
-function addMessage(html, type) {
+function addMessage(html, type, scroll = true) {
   const msgs = document.getElementById('messages');
   const div = document.createElement('div');
   div.className = `msg msg-${type}`;
   div.innerHTML = `<div class="bubble">${html}</div><div class="msg-time">${new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</div>`;
   msgs.appendChild(div);
-  msgs.scrollTop = msgs.scrollHeight;
+  if (scroll) msgs.scrollTop = msgs.scrollHeight;
 }
 
 function updateLastMsg(html) {
@@ -468,8 +572,13 @@ function pollJob(jobId, companyName) {
           const d = document.getElementById(`t${i}-${jobId}`);
           if (d) { d.className='task-dot t-done'; d.textContent='✓'; }
         }
-        addMessage(`✅ <strong>${companyName}</strong> está pronto! Aparecerá na lista em instantes.`, 'eva');
-        setTimeout(loadDeals, 2000);
+        if (currentConversationId) {
+          selectConversation(currentConversationId);
+        } else {
+          addMessage(`✅ <strong>${companyName}</strong> está pronto!`, 'eva');
+        }
+        loadConversations();
+        loadDeals();
       }
       if (job.status === 'error') {
         clearInterval(pollTimer);
@@ -482,15 +591,40 @@ function pollJob(jobId, companyName) {
 document.getElementById('msgInput').addEventListener('keydown', e => { if(e.key==='Enter') sendMsg(); });
 
 function showPanel(name) {
-  ['deals','search','files','settings'].forEach(p => {
+  ['conversations','deals','search','files','settings'].forEach(p => {
     document.getElementById(`panel-${p}`).style.display = p === name ? 'flex' : 'none';
     document.getElementById(`btn-${p}`)?.classList.toggle('active', p === name);
   });
   document.getElementById(`panel-${name}`).style.flexDirection = 'column';
   if (name === 'files') loadFiles();
+  if (name === 'conversations') loadConversations();
   if (name === 'settings') {
     document.getElementById('settingsPhone').textContent = phone || '—';
   }
+}
+
+async function uploadChatDocument(file) {
+  if (!file) return;
+  try {
+    await ensureConversation();
+    showChatArea();
+    addMessage(`📎 Enviando <strong>${escHtml(file.name)}</strong>...`, 'user');
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch(`${API}/conversations/${currentConversationId}/documents`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+      body: formData
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.detail || 'Erro na ingestão');
+    currentDealId = body.deal_id;
+    addMessage(`✅ Documento <strong>${escHtml(file.name)}</strong> ingerido (${body.chunk_count} chunks).`, 'eva');
+    loadConversations();
+  } catch (e) {
+    addMessage(`❌ ${e.message}`, 'eva');
+  }
+  document.getElementById('chatFileInput').value = '';
 }
 
 function searchDeals() {
@@ -519,7 +653,7 @@ async function uploadFile(file) {
   const formData = new FormData();
   formData.append('file', file);
   try {
-    const res = await fetch(`${API}/upload`, {
+    const res = await fetch(`${API}/files/upload`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}` },
       body: formData
@@ -544,8 +678,13 @@ async function loadFiles() {
   try {
     const res = await apiFetch(`${API}/files`);
     if (!res.ok) return;
-    const files = await res.json();
+    const body = await res.json();
+    const files = body.files || [];
     const list = document.getElementById('fileList');
+    if (!body.storage_enabled) {
+      list.innerHTML = '<div style="font-size:12px;color:#aaa;text-align:center;padding:12px">Armazenamento não configurado</div>';
+      return;
+    }
     if (!files.length) {
       list.innerHTML = '<div style="font-size:12px;color:#aaa;text-align:center;padding:12px">Nenhum arquivo ainda</div>';
       return;
@@ -570,8 +709,23 @@ function fileIcon(name) {
   return icons[ext] || '📄';
 }
 
+async function initPlatform() {
+  try {
+    const res = await apiFetch(`${API}/me`);
+    if (res.ok) {
+      const me = await res.json();
+      if (me.storage_enabled) {
+        document.getElementById('btn-files').style.display = '';
+        loadFiles();
+      }
+    }
+  } catch (e) { console.error(e); }
+  loadConversations();
+  loadDeals();
+}
+
 // Inicia
-loadDeals();
+initPlatform();
 </script>
 </body>
 </html>
