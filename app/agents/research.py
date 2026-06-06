@@ -1,31 +1,48 @@
 import os
 import re
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 from urllib.parse import urlparse
 
 from langchain_community.tools.tavily_search import TavilySearchResults
 
+from app.ingestion.retrieval import (
+    chunks_to_citations,
+    format_dataroom_context,
+    retrieve_for_deal,
+)
 from app.json_utils import invoke_json_llm
 from app.llm import truncate_text
 from app.media import download_file
-from app.state import JobState
+from app.state import Citation, JobState
 
 MAX_SNIPPET_CHARS = 350
 MAX_SEARCH_CONTEXT = 6000
 
-SEARCH_QUERIES = {
+DATAROOM_QUERIES = {
     "CIM": [
-        "{company} company overview business model",
-        "{company} financial revenue market competitors buyers",
+        "{company} overview negócio modelo receita produtos",
+        "{company} mercado concorrentes posicionamento fundadores",
     ],
     "VALUATION": [
-        "{company} revenue EBITDA margins historical financials",
-        "{company} sector multiples comparable transactions valuation",
+        "{company} receita EBITDA margens histórico financeiro",
+        "{company} valuation múltiplos comparáveis transações",
     ],
     "DUE_DILIGENCE": [
-        "{company} litigation lawsuits regulatory issues",
-        "{company} founders reputation negative news operational risks governance",
+        "{company} litígios riscos regulatório governança",
+        "{company} passivo contingências operação compliance",
+    ],
+}
+
+EXTERNAL_QUERIES = {
+    "CIM": [
+        "{company} market competitors sector trends",
+    ],
+    "VALUATION": [
+        "{company} sector multiples comparable public companies",
+    ],
+    "DUE_DILIGENCE": [
+        "{company} industry regulatory landscape",
     ],
 }
 
@@ -36,6 +53,8 @@ STRUCTURE_FIX = (
 
 
 def _tavily_search(query: str) -> list[str]:
+    if not os.getenv("TAVILY_API_KEY"):
+        return []
     tavily = TavilySearchResults(
         max_results=3,
         api_key=os.environ["TAVILY_API_KEY"],
@@ -52,6 +71,21 @@ def _tavily_search(query: str) -> list[str]:
             snippets.append(truncate_text(str(item), MAX_SNIPPET_CHARS))
 
     return snippets
+
+
+def _external_citations(snippets: list[str]) -> List[Citation]:
+    citations: List[Citation] = []
+    for idx, snippet in enumerate(snippets, start=1):
+        citations.append(
+            {
+                "source_file": "web_search",
+                "page": idx,
+                "chunk_id": f"external-{idx}",
+                "quote": truncate_text(snippet, 400),
+                "source": "external",
+            }
+        )
+    return citations
 
 
 def _extract_domain(results: list[str], company_name: str) -> Optional[str]:
@@ -129,18 +163,37 @@ def _fallback_research_structured(company_name: str) -> dict:
 
 
 def _synthesize_research(
-    company_name: str, raw_research_data: str, client_context: str = ""
+    company_name: str,
+    *,
+    dataroom_context: str,
+    external_context: str,
+    legacy_client_context: str = "",
 ) -> dict:
-    client_block = ""
-    if client_context.strip():
-        client_block = (
-            f"\n\nDocumento confidencial enviado pelo cliente (use como contexto adicional, "
-            f"priorize dados factuais quando disponíveis):\n"
-            f"{truncate_text(client_context, 4000)}\n"
+    dataroom_block = ""
+    if dataroom_context.strip():
+        dataroom_block = (
+            "\n\nFONTE PRIMÁRIA — documentos confidenciais do data room do cliente "
+            "(priorize estes dados; cite a origem mentalmente):\n"
+            f"{truncate_text(dataroom_context, 6000)}\n"
+        )
+
+    external_block = ""
+    if external_context.strip():
+        external_block = (
+            "\n\nFONTE COMPLEMENTAR EXTERNA — mercado/comparáveis (use apenas para "
+            "contexto setorial; marque como estimativa se não confirmado no data room):\n"
+            f"{truncate_text(external_context, 3000)}\n"
+        )
+
+    legacy_block = ""
+    if legacy_client_context.strip() and not dataroom_context.strip():
+        legacy_block = (
+            "\n\nContexto adicional enviado pelo cliente:\n"
+            f"{truncate_text(legacy_client_context, 4000)}\n"
         )
 
     prompt = (
-        f"Você recebeu dados brutos de pesquisa sobre {company_name}.\n"
+        f"Você recebeu dados sobre {company_name}.\n"
         "Sintetize em um relatório estruturado em JSON com exatamente estes campos:\n\n"
         "{\n"
         "  'company_name': str,\n"
@@ -159,12 +212,12 @@ def _synthesize_research(
         "  'sector_image_keyword': str (palavra-chave em inglês para buscar imagem)\n"
         "}\n\n"
         "REGRAS ABSOLUTAS:\n"
+        "- Priorize fatos dos documentos do data room sobre fontes externas\n"
         "- Nunca inclua pipes |, URLs, hífens ---, ou qualquer formatação markdown\n"
         "- Todos os textos devem ser frases limpas em português\n"
-        "- Se um dado não estiver disponível, escreva uma estimativa razoável "
-        "baseada no que você sabe sobre a empresa, NUNCA retorne 'N/D' ou vazio\n"
-        "- Retorne APENAS o JSON, sem texto antes ou depois\n\n"
-        f"Dados brutos: {raw_research_data}{client_block}"
+        "- Se um dado não estiver no data room, use fonte externa ou estimativa 'est.'\n"
+        "- Retorne APENAS o JSON, sem texto antes ou depois\n"
+        f"{dataroom_block}{external_block}{legacy_block}"
     )
     try:
         return invoke_json_llm(
@@ -180,34 +233,53 @@ def research_node(state: JobState) -> dict:
     company_name = state["company_name"]
     job_id = state["job_id"]
     document_type = state.get("document_type", "CIM")
+    deal_id = state.get("deal_id") or ""
 
-    queries = [
+    # 1) Fonte primária: data room indexado por deal
+    dataroom_queries = [
         q.format(company=company_name)
-        for q in SEARCH_QUERIES.get(document_type, SEARCH_QUERIES["CIM"])
+        for q in DATAROOM_QUERIES.get(document_type, DATAROOM_QUERIES["CIM"])
     ]
+    dataroom_chunks = retrieve_for_deal(deal_id, dataroom_queries, k=5) if deal_id else []
+    dataroom_citations = chunks_to_citations(dataroom_chunks, source="data_room")
+    dataroom_context = format_dataroom_context(dataroom_chunks)
 
-    raw_results: list[str] = []
-    for query in queries:
-        raw_results.extend(_tavily_search(query))
+    # 2) Fonte complementar externa: Tavily (mercado/comparáveis)
+    external_queries = [
+        q.format(company=company_name)
+        for q in EXTERNAL_QUERIES.get(document_type, EXTERNAL_QUERIES["CIM"])
+    ]
+    external_snippets: list[str] = []
+    for query in external_queries:
+        external_snippets.extend(_tavily_search(query))
+    external_citations = _external_citations(external_snippets)
+    external_context = "\n\n".join(external_snippets)
 
-    raw_research_data = truncate_text("\n\n".join(raw_results), MAX_SEARCH_CONTEXT)
-    client_context = state.get("client_context") or ""
+    legacy_client_context = state.get("client_context") or ""
     research_structured = _synthesize_research(
-        company_name, raw_research_data, client_context
+        company_name,
+        dataroom_context=dataroom_context,
+        external_context=external_context,
+        legacy_client_context=legacy_client_context,
     )
     research_structured["company_name"] = company_name
 
+    all_citations: List[Citation] = dataroom_citations + external_citations
+
     logo_path = None
-    try:
-        domain = _extract_domain(raw_results, company_name)
-        if domain:
-            logo_path = _download_logo(domain, job_id)
-    except Exception:
-        pass
+    if external_snippets:
+        try:
+            domain = _extract_domain(external_snippets, company_name)
+            if domain:
+                logo_path = _download_logo(domain, job_id)
+        except Exception:
+            pass
 
     result = {
         "research_structured": research_structured,
         "research_data": research_structured.get("description", ""),
+        "research_citations": all_citations,
+        "retrieved_context": dataroom_citations,
     }
     if logo_path:
         result["logo_path"] = logo_path

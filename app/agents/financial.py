@@ -1,18 +1,45 @@
 import json
 import os
-import re
 
 import yfinance as yf
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from app.citations.matching import audit_financial_structured, audits_to_serializable
+from app.ingestion.retrieval import (
+    chunks_to_citations,
+    format_dataroom_context,
+    retrieve_for_deal,
+)
 from app.json_utils import invoke_json_llm, parse_json_with_llm_retry
 from app.llm import invoke_llm_with_pause, truncate_text
-from app.state import JobState
+from app.state import Citation, JobState
 
 FINANCIAL_FIX = (
     "Retorne JSON válido com todos os campos financeiros preenchidos. "
     "Nunca use N/D. Estime valores com 'est.' quando necessário."
 )
+
+FINANCIAL_DATAROOM_QUERIES = [
+    "{company} receita faturamento 2022 2023 2024",
+    "{company} EBITDA margem lucro demonstrativo financeiro",
+    "{company} valuation múltiplo EV EBITDA P/L",
+]
+
+
+def _target_is_public(company_name: str) -> bool:
+    """Detecta se o alvo parece ser empresa pública listada."""
+    if os.environ.get("YAHOO_FINANCE_TICKER"):
+        return True
+    try:
+        search = yf.Search(company_name, max_results=1)
+        quotes = search.quotes or []
+        if not quotes:
+            return False
+        symbol = quotes[0].get("symbol")
+        quote_type = str(quotes[0].get("quoteType", "")).upper()
+        return bool(symbol) and quote_type in {"EQUITY", "ETF"}
+    except Exception:
+        return False
 
 
 def _fetch_yahoo_finance(company_name: str) -> dict:
@@ -41,27 +68,55 @@ def _fetch_yahoo_finance(company_name: str) -> dict:
         "pe_ratio": info.get("trailingPE"),
         "sector": info.get("sector"),
         "industry": info.get("industry"),
+        "_source": "external",
+    }
+
+
+def _yahoo_citation(yahoo_data: dict) -> Citation:
+    ticker = yahoo_data.get("ticker", "yahoo")
+    return {
+        "source_file": f"yahoo_finance:{ticker}",
+        "page": 1,
+        "chunk_id": f"external-yahoo-{ticker}",
+        "quote": truncate_text(json.dumps(yahoo_data, default=str), 400),
+        "source": "external",
     }
 
 
 def _financial_prompt(
     company_name: str,
     research_context: str,
+    dataroom_context: str,
     yahoo_data: dict,
-    client_context: str = "",
+    legacy_client_context: str = "",
 ) -> str:
-    client_block = ""
-    if client_context.strip():
-        client_block = (
-            f"\n\nDocumento confidencial do cliente (priorize números e fatos deste texto):\n"
-            f"{truncate_text(client_context, 4000)}\n"
+    dataroom_block = ""
+    if dataroom_context.strip():
+        dataroom_block = (
+            "\n\nFONTE PRIMÁRIA — documentos financeiros do data room "
+            "(priorize números destes trechos):\n"
+            f"{truncate_text(dataroom_context, 6000)}\n"
+        )
+
+    yahoo_block = ""
+    if yahoo_data:
+        yahoo_block = (
+            "\n\nFONTE EXTERNA — Yahoo Finance (complemento para comparáveis/públicos):\n"
+            f"{json.dumps(yahoo_data, default=str)}\n"
+        )
+
+    legacy_block = ""
+    if legacy_client_context.strip() and not dataroom_context.strip():
+        legacy_block = (
+            "\n\nContexto legado do cliente:\n"
+            f"{truncate_text(legacy_client_context, 4000)}\n"
         )
 
     return (
-        f"Você é um analista financeiro sênior. Com base nos dados de pesquisa sobre "
+        f"Você é um analista financeiro sênior. Com base nos dados sobre "
         f"{company_name}, extraia e CALCULE os dados financeiros.\n\n"
-        "Se os dados exatos não estiverem disponíveis, use seu conhecimento sobre "
-        "a empresa e o setor para fazer estimativas razoáveis e sinalizadas como 'est.'\n\n"
+        "Priorize números dos documentos do data room. Use Yahoo Finance apenas "
+        "como complemento para comparáveis ou empresas públicas.\n\n"
         "Retorne APENAS este JSON:\n"
         "{\n"
         "  'revenue_2022': str,\n"
@@ -90,11 +145,10 @@ def _financial_prompt(
         "  'risk_justification': str,\n"
         "  'risks': [{'risco': str, 'nivel': str, 'mitigacao': str}]\n"
         "}\n\n"
-        "NUNCA retorne N/D. Se não souber o valor exato, estime com base no setor "
-        "e sinalize com 'est.' no final do valor.\n"
+        "NUNCA retorne N/D. Estime com 'est.' se necessário.\n"
         "Retorne APENAS o JSON.\n\n"
-        f"Pesquisa estruturada:\n{research_context}\n\n"
-        f"Yahoo Finance:\n{json.dumps(yahoo_data, default=str)}{client_block}"
+        f"Pesquisa estruturada:\n{research_context}\n"
+        f"{dataroom_block}{yahoo_block}{legacy_block}"
     )
 
 
@@ -142,8 +196,18 @@ def _fallback_financial_structured(company_name: str, yahoo: dict, research: dic
     }
 
 
-def _to_kpis(financial: dict) -> dict:
-    return {
+def _attach_field_citations(financial: dict, citations: list[Citation]) -> dict:
+    """Associa citações com status explícito; None quando sem fonte data_room."""
+    audits = audit_financial_structured(financial, citations)
+    financial["_field_audits"] = audits_to_serializable(audits)
+    financial["_field_citations"] = {
+        field: audit.citation for field, audit in audits.items()
+    }
+    return financial
+
+
+def _to_kpis(financial: dict, citations: list[Citation]) -> dict:
+    kpis = {
         "revenue": financial.get("revenue_2024"),
         "ebitda": financial.get("ebitda"),
         "ebitda_margin": financial.get("net_margin"),
@@ -170,6 +234,12 @@ def _to_kpis(financial: dict) -> dict:
         "risk_justification": financial.get("risk_justification"),
         "risks": financial.get("risks", []),
     }
+    field_citations = financial.get("_field_citations") or {}
+    if field_citations:
+        kpis["field_citations"] = field_citations
+    if citations:
+        kpis["sources"] = citations
+    return kpis
 
 
 def _revenue_history(financial: dict) -> list:
@@ -182,13 +252,31 @@ def _revenue_history(financial: dict) -> list:
 
 def financial_node(state: JobState) -> dict:
     company_name = state["company_name"]
-    yahoo_data = _fetch_yahoo_finance(company_name)
+    deal_id = state.get("deal_id") or ""
     research = state.get("research_structured") or {}
-    client_context = state.get("client_context") or ""
+    legacy_client_context = state.get("client_context") or ""
     research_context = truncate_text(json.dumps(research, ensure_ascii=False), 3000)
 
+    # 1) Fonte primária: data room
+    dataroom_queries = [q.format(company=company_name) for q in FINANCIAL_DATAROOM_QUERIES]
+    dataroom_chunks = retrieve_for_deal(deal_id, dataroom_queries, k=5) if deal_id else []
+    dataroom_citations = chunks_to_citations(dataroom_chunks, source="data_room")
+    dataroom_context = format_dataroom_context(dataroom_chunks)
+
+    # 2) Yahoo Finance opcional — só para públicos/comparáveis
+    yahoo_data: dict = {}
+    financial_citations: list[Citation] = list(dataroom_citations)
+    if _target_is_public(company_name):
+        yahoo_data = _fetch_yahoo_finance(company_name)
+        if yahoo_data:
+            financial_citations.append(_yahoo_citation(yahoo_data))
+
     prompt = _financial_prompt(
-        company_name, research_context, yahoo_data, client_context
+        company_name,
+        research_context,
+        dataroom_context,
+        yahoo_data,
+        legacy_client_context,
     )
 
     try:
@@ -212,7 +300,8 @@ def financial_node(state: JobState) -> dict:
                 company_name, yahoo_data, research
             )
 
-    kpis = _to_kpis(financial_structured)
+    financial_structured = _attach_field_citations(financial_structured, dataroom_citations)
+    kpis = _to_kpis(financial_structured, financial_citations)
     if yahoo_data:
         kpis["yahoo_finance"] = yahoo_data
 
@@ -221,4 +310,6 @@ def financial_node(state: JobState) -> dict:
         "kpis": kpis,
         "revenue_history": _revenue_history(financial_structured),
         "revenue_breakdown": [],
+        "financial_citations": financial_citations,
+        "retrieved_context": (state.get("retrieved_context") or []) + dataroom_citations,
     }

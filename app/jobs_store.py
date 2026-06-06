@@ -29,6 +29,7 @@ def _row_to_job(row: dict[str, Any]) -> dict[str, Any]:
         "qa_issues": row.get("qa_issues") or [],
         "error": row.get("error"),
         "whatsapp_phone": row.get("phone"),
+        "deal_id": row.get("deal_id") or "",
     }
 
 
@@ -38,6 +39,7 @@ def create_job(
     *,
     phone: str = "",
     client_id: str = "default",
+    deal_id: str = "",
 ) -> str:
     job_id = str(uuid.uuid4())
     phone_value = phone or client_id or "default"
@@ -48,6 +50,8 @@ def create_job(
         "document_type": doc_type,
         "status": "pending",
     }
+    if deal_id:
+        payload["deal_id"] = deal_id
 
     client = get_supabase()
     if client:
@@ -60,7 +64,9 @@ def create_job(
             metadata={"document_type": doc_type},
         )
     else:
-        _memory_jobs[job_id] = _row_to_job({**payload, "qa_passed": None, "qa_issues": None})
+        _memory_jobs[job_id] = _row_to_job(
+            {**payload, "qa_passed": None, "qa_issues": None}
+        )
 
     return job_id
 

@@ -157,7 +157,7 @@ def presenton_document(state: dict) -> dict:
             "Gere sua chave em presenton.ai/api-key"
         )
 
-    content = build_content(state, doc_type)
+    content = state.get("_generation_plain") or build_content(state, doc_type)
     payload = {
         "content": content,
         "n_slides": N_SLIDES_MAP.get(doc_type, 10),
@@ -289,12 +289,30 @@ def run_document_agent(state: dict) -> dict:
 
 
 def document_node(state: JobState) -> dict:
-    result = run_document_agent(dict(state))
-    if result.get("error"):
-        raise RuntimeError(result["error"])
+    from app.artifact_types import resolve_artifact_type
+    from app.generation.generate import generate
 
-    return {
-        "ppt_path": result["ppt_path"],
-        "ppt_filename": result["ppt_filename"],
-        "edit_url": result.get("edit_url"),
+    artifact_type = state.get("artifact_type") or resolve_artifact_type(
+        state.get("document_type", "CIM"),
+        message=state.get("job_message", ""),
+    )
+    deal_state = dict(state)
+    deal_state["artifact_type"] = artifact_type
+
+    try:
+        result = generate(artifact_type, deal_state)
+    except Exception as exc:
+        raise RuntimeError(f"Erro no Document Agent: {exc}") from exc
+
+    payload = {
+        "artifact_type": result.artifact_type,
+        "file_path": result.file_path,
+        "file_filename": result.file_filename,
+        "ppt_path": result.file_path if result.format == "pptx" else state.get("ppt_path"),
+        "ppt_filename": result.file_filename if result.format == "pptx" else state.get("ppt_filename"),
+        "edit_url": state.get("edit_url"),
     }
+    if result.format == "pptx":
+        payload["ppt_path"] = result.file_path
+        payload["ppt_filename"] = result.file_filename
+    return payload

@@ -120,6 +120,39 @@ def fill_template(template_path: str, values: Dict[str, str]) -> Presentation:
     return prs
 
 
+def append_citations_slide(prs: Presentation, state: dict) -> None:
+    """Adiciona slide de referências com citações do data room e fontes externas."""
+    citations = (
+        (state.get("financial_citations") or [])
+        + (state.get("research_citations") or [])
+    )
+    if not citations:
+        return
+
+    seen: set[str] = set()
+    lines: list[str] = ["Fontes e referências:"]
+    for idx, citation in enumerate(citations, start=1):
+        key = citation.get("chunk_id") or f"{citation.get('source_file')}-{idx}"
+        if key in seen:
+            continue
+        seen.add(key)
+        source = citation.get("source") or "data_room"
+        src_file = citation.get("source_file") or "—"
+        page = citation.get("page") or "—"
+        quote = (citation.get("quote") or "")[:120]
+        lines.append(f"[{idx}] ({source}) {src_file}, pág. {page}: {quote}")
+
+    slide_layout = prs.slide_layouts[5] if len(prs.slide_layouts) > 5 else prs.slide_layouts[0]
+    slide = prs.slides.add_slide(slide_layout)
+    if slide.shapes.title:
+        slide.shapes.title.text = "Referências"
+    body = "\n".join(lines[:12])
+    for shape in slide.shapes:
+        if shape.has_text_frame and shape != slide.shapes.title:
+            shape.text_frame.text = body
+            break
+
+
 def generate_pptx_from_template(
     state: dict,
     template_path: str,
@@ -133,6 +166,7 @@ def generate_pptx_from_template(
 
     values = build_shape_values(state)
     prs = fill_template(template_path, values)
+    append_citations_slide(prs, state)
 
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     prs.save(output_path)

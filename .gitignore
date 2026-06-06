@@ -2,5 +2,7 @@
 __pycache__/
 *.py[cod]
 .env
+eva_workspace.db
 outputs/*.pptx
+uploads/
 .DS_Store

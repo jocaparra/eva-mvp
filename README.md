@@ -9,6 +9,7 @@ EVA is an autonomous agent that receives a company name and generates a CIM (Con
 - **LangChain + Google Gemini** — LLM synthesis and KPI extraction
 - **Tavily** — web search for company research
 - **Yahoo Finance (yfinance)** — financial KPIs
+- **SQLAlchemy + Postgres** — deal workspace persistente (documentos, artefatos, citações)
 - **python-pptx** — PowerPoint generation
 
 ## Prerequisites
@@ -33,6 +34,113 @@ pip install -r requirements.txt
 # Configure environment variables
 cp .env.example .env
 # Edit .env and fill in your API keys
+
+# Banco (deal workspace) — opcional em dev (usa SQLite local eva_workspace.db)
+# alembic upgrade head
+```
+
+## Deal workspace (novo fluxo)
+
+Persistência SQLAlchemy para deals com data room, artefatos e citações.
+
+```bash
+# Criar deal (requer JWT)
+curl -X POST http://localhost:8000/deals \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"company_name": "Empresa Alvo Ltda"}'
+
+# Ler deal
+curl http://localhost:8000/deals/{deal_id} \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Migrations:
+
+```bash
+alembic upgrade head
+```
+
+Testes da etapa 1:
+
+```bash
+pytest tests/test_deal_workspace_stage1.py -v
+```
+
+### Upload e ingestão (data room)
+
+```bash
+# Upload PDF para o deal
+curl -X POST "http://localhost:8000/deals/{deal_id}/documents" \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@/caminho/para/data-room.pdf"
+```
+
+Testes da etapa 2:
+
+```bash
+pytest tests/test_ingestion_stage2.py -v
+```
+
+Testes da etapa 3 (RAG + citações):
+
+```bash
+pytest tests/test_research_stage3.py -v
+```
+
+Testes da etapa 4 (QA factual):
+
+```bash
+pytest tests/test_qa_stage4.py -v
+```
+
+### Aprovação humana (etapa 5)
+
+```bash
+# Gerar artefato vinculado ao deal
+curl -X POST "http://localhost:8000/deals/{deal_id}/generate" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Gerar CIM da Empresa Alvo"}'
+
+# Revisar audit por campo (status, delta, citação, chunks buscados)
+curl "http://localhost:8000/deals/{deal_id}/artifacts/{artifact_id}" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Aprovar (override exige override_reason quando há issues bloqueantes)
+curl -X POST "http://localhost:8000/deals/{deal_id}/artifacts/{artifact_id}/approve" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"override_reason": "Validado com CFO em call."}'
+```
+
+Testes da etapa 5:
+
+```bash
+pytest tests/test_approval_stage5.py -v
+```
+
+### Gerador parametrizado (etapa 6)
+
+```python
+from app.generation import generate
+
+result = generate("cim_pptx", deal_state)   # ou "memo_docx"
+# result.file_path, result.artifact_type, result.mime_type
+```
+
+Tipos suportados: `cim_pptx`, `memo_docx`. `model_xlsx` fica fora (proveniência por célula).
+
+Testes da etapa 6:
+
+```bash
+pytest tests/test_generation_stage6.py -v
+```
+
+Suite completa:
+
+```bash
+pytest tests/ -v
 ```
 
 ## Running locally

@@ -6,21 +6,48 @@ from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.orm import Session
 
 from app.access import check_access, check_job_limit, record_job
 from app.audit import log_action
 from app.auth import router as auth_router
 from app.company_extract import extract_company_name
+from app.database import get_db, init_db, session_scope
 from app.document_types import detect_document_type
 from app.graph import run_pipeline
 from app.jobs_store import create_job, get_job, list_jobs, update_job
 from app.llm import ENV_PATH
 from app.log_utils import log_job_created, log_webhook_error, log_webhook_received
 from app.middleware import AuthPhone
+from app.repositories.deal_workspace import (
+    DealAccessDeniedError,
+    DealNotFoundError,
+    create_deal,
+    get_deal_for_owner,
+    to_deal_state,
+)
+from app.schemas.deal_workspace import (
+    ApproveArtifactRequest,
+    ApproveArtifactResponse,
+    ArtifactReviewResponse,
+    CreateDealRequest,
+    DealWorkspaceResponse,
+    WorkspaceDocumentResponse,
+)
+from app.services.artifact_review import build_artifact_review
+from app.repositories.workspace_artifact import (
+    AlreadyApprovedError,
+    ApprovalBlockedError,
+    ArtifactNotFoundError,
+    approve_artifact,
+    get_artifact_for_owner,
+    upsert_artifact_from_pipeline,
+)
+from app.services.document_ingestion import ingest_deal_document
 from app.utils.client_documents import process_web_document_upload
 from app.utils.doc_cache import cleanup_expired, clear_context, get_context, get_context_meta
 from app.utils.template import save_client_template
@@ -125,6 +152,175 @@ async def dev_login(request: Request):
         raise HTTPException(status_code=400, detail="Número inválido")
     token = create_access_token(phone)
     return {"access_token": token, "phone": phone, "token_type": "bearer"}
+
+
+@app.post("/deals", response_model=DealWorkspaceResponse, status_code=201)
+def criar_deal_workspace(
+    request: CreateDealRequest,
+    auth_phone: AuthPhone,
+    db: Session = Depends(get_db),
+):
+    """Cria um deal workspace persistente (Postgres/SQLAlchemy)."""
+    deal = create_deal(db, company_name=request.company_name, owner_phone=auth_phone)
+    return to_deal_state(deal)
+
+
+@app.post("/deals/{deal_id}/documents", response_model=WorkspaceDocumentResponse, status_code=201)
+async def upload_deal_document(
+    deal_id: str,
+    auth_phone: AuthPhone,
+    db: Session = Depends(get_db),
+    file: UploadFile = File(...),
+):
+    """Upload de documento do data room → parse → chunk → embed → index."""
+    from uuid import UUID
+
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Arquivo sem nome")
+
+    try:
+        deal_uuid = UUID(deal_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="ID de deal inválido") from exc
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Arquivo vazio")
+
+    try:
+        document, _chunk_count = ingest_deal_document(
+            db,
+            deal_id=deal_uuid,
+            owner_phone=auth_phone,
+            filename=file.filename,
+            content=content,
+            mime_type=file.content_type or "",
+        )
+    except DealNotFoundError:
+        raise HTTPException(status_code=404, detail="Deal não encontrado")
+    except DealAccessDeniedError:
+        raise HTTPException(status_code=403, detail="Acesso negado")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return document
+
+
+@app.get("/deals/{deal_id}", response_model=DealWorkspaceResponse)
+def obter_deal_workspace(
+    deal_id: str,
+    auth_phone: AuthPhone,
+    db: Session = Depends(get_db),
+):
+    """Retorna deal workspace com documentos e artefatos."""
+    from uuid import UUID
+
+    try:
+        deal_uuid = UUID(deal_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="ID de deal inválido") from exc
+
+    try:
+        deal = get_deal_for_owner(db, deal_uuid, auth_phone)
+    except DealNotFoundError:
+        raise HTTPException(status_code=404, detail="Deal não encontrado")
+    except DealAccessDeniedError:
+        raise HTTPException(status_code=403, detail="Acesso negado")
+
+    return to_deal_state(deal)
+
+
+@app.get("/deals/{deal_id}/artifacts/{artifact_id}", response_model=ArtifactReviewResponse)
+def obter_artifact_review(
+    deal_id: str,
+    artifact_id: str,
+    auth_phone: AuthPhone,
+    db: Session = Depends(get_db),
+):
+    """Revisão humana — audit por campo (status, delta, citação, chunks buscados)."""
+    from uuid import UUID
+
+    try:
+        deal_uuid = UUID(deal_id)
+        artifact_uuid = UUID(artifact_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="ID inválido") from exc
+
+    try:
+        artifact = get_artifact_for_owner(db, deal_uuid, artifact_uuid, auth_phone)
+    except DealNotFoundError:
+        raise HTTPException(status_code=404, detail="Deal não encontrado")
+    except DealAccessDeniedError:
+        raise HTTPException(status_code=403, detail="Acesso negado")
+    except ArtifactNotFoundError:
+        raise HTTPException(status_code=404, detail="Artefato não encontrado")
+
+    return build_artifact_review(db, artifact)
+
+
+@app.post(
+    "/deals/{deal_id}/artifacts/{artifact_id}/approve",
+    response_model=ApproveArtifactResponse,
+    status_code=201,
+)
+def aprovar_artifact(
+    deal_id: str,
+    artifact_id: str,
+    request: ApproveArtifactRequest,
+    auth_phone: AuthPhone,
+    db: Session = Depends(get_db),
+):
+    """Aprovação imutável; override com justificativa quando há issues bloqueantes."""
+    from uuid import UUID
+
+    from app.schemas.deal_workspace import ArtifactApprovalResponse, WorkspaceArtifactResponse
+
+    try:
+        deal_uuid = UUID(deal_id)
+        artifact_uuid = UUID(artifact_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="ID inválido") from exc
+
+    try:
+        approval = approve_artifact(
+            db,
+            deal_id=deal_uuid,
+            artifact_id=artifact_uuid,
+            owner_phone=auth_phone,
+            override_reason=request.override_reason,
+        )
+        artifact = get_artifact_for_owner(db, deal_uuid, artifact_uuid, auth_phone)
+    except DealNotFoundError:
+        raise HTTPException(status_code=404, detail="Deal não encontrado")
+    except DealAccessDeniedError:
+        raise HTTPException(status_code=403, detail="Acesso negado")
+    except ArtifactNotFoundError:
+        raise HTTPException(status_code=404, detail="Artefato não encontrado")
+    except AlreadyApprovedError:
+        raise HTTPException(status_code=409, detail="Artefato já aprovado nesta versão")
+    except ApprovalBlockedError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": str(exc), "blocking_issues": exc.blocking_issues},
+        )
+
+    log_action(
+        auth_phone,
+        "artifact_approved",
+        resource_type="artifact",
+        resource_id=str(artifact_uuid),
+        metadata={
+            "deal_id": deal_id,
+            "version": artifact.version,
+            "override": approval.override,
+            "had_blocking_issues": approval.had_blocking_issues,
+        },
+    )
+
+    return ApproveArtifactResponse(
+        approval=ArtifactApprovalResponse.model_validate(approval),
+        artifact=WorkspaceArtifactResponse.model_validate(artifact),
+    )
 
 
 @app.get("/deals")
@@ -285,6 +481,53 @@ class JobRecord(BaseModel):
     error: Optional[str] = None
 
 
+class DealGenerateRequest(BaseModel):
+    message: str = Field(..., min_length=1, examples=["Gerar CIM da Empresa Alvo"])
+
+
+@app.post("/deals/{deal_id}/generate", response_model=JobRecord, status_code=202)
+async def gerar_artifact_deal(
+    deal_id: str,
+    request: DealGenerateRequest,
+    background_tasks: BackgroundTasks,
+    auth_phone: AuthPhone,
+    db: Session = Depends(get_db),
+):
+    """Dispara geração de artefato vinculada ao deal (persiste ao concluir)."""
+    from uuid import UUID
+
+    try:
+        deal_uuid = UUID(deal_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="ID de deal inválido") from exc
+
+    try:
+        deal = get_deal_for_owner(db, deal_uuid, auth_phone)
+    except DealNotFoundError:
+        raise HTTPException(status_code=404, detail="Deal não encontrado")
+    except DealAccessDeniedError:
+        raise HTTPException(status_code=403, detail="Acesso negado")
+
+    message = request.message.strip()
+    document_type = detect_document_type(message)
+    company_name = deal.company_name
+
+    job_id = create_job(
+        company_name,
+        document_type,
+        phone=auth_phone,
+        client_id=auth_phone,
+        deal_id=deal_id,
+    )
+
+    background_tasks.add_task(_run_job, job_id, company_name, document_type, auth_phone)
+
+    job = get_job(job_id, phone=auth_phone)
+    if not job:
+        raise HTTPException(status_code=500, detail="Failed to create job")
+    return JobRecord(**job)
+
+
 def _run_job(
     job_id: str,
     company_name: str,
@@ -314,6 +557,7 @@ def _run_job(
             document_type,
             client_id,
             client_context=client_context,
+            deal_id=(job or {}).get("deal_id") or "",
         )
         update_job(
             job_id,
@@ -323,6 +567,21 @@ def _run_job(
             qa_passed=result.get("qa_passed"),
             qa_issues=result.get("qa_issues", []),
         )
+        deal_id = (job or {}).get("deal_id") or ""
+        if deal_id:
+            from uuid import UUID
+
+            try:
+                with session_scope() as db:
+                    upsert_artifact_from_pipeline(
+                        db,
+                        deal_id=UUID(deal_id),
+                        owner_phone=phone,
+                        artifact_type=result.get("artifact_type") or document_type,
+                        pipeline_result=result,
+                    )
+            except Exception as exc:
+                print(f"[artifact] Falha ao persistir artefato do deal {deal_id}: {exc}")
         log_action(
             phone,
             "job_completed",
@@ -587,6 +846,7 @@ def download_job(job_id: str, auth_phone: AuthPhone):
 @app.on_event("startup")
 def _startup_doc_cache_cleanup():
     cleanup_expired()
+    init_db()
 
 
 @app.post("/whatsapp")
