@@ -1,4 +1,4 @@
-"""Geração de embeddings — abstração sobre provedor (Gemini por padrão)."""
+"""Geração de embeddings — Voyage AI (parceiro Anthropic) ou determinístico em testes."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import os
 from typing import List
 
 EMBEDDING_DIM = 768
-EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL", "models/text-embedding-004")
+VOYAGE_EMBEDDING_MODEL = os.getenv("VOYAGE_EMBEDDING_MODEL", "voyage-3-lite")
 
 
 def _deterministic_embedding(text: str, dim: int = EMBEDDING_DIM) -> List[float]:
@@ -22,19 +22,31 @@ def _deterministic_embedding(text: str, dim: int = EMBEDDING_DIM) -> List[float]
     return [v / norm for v in values]
 
 
+def _fit_embedding(vector: List[float], dim: int = EMBEDDING_DIM) -> List[float]:
+    if len(vector) == dim:
+        return vector
+    if len(vector) > dim:
+        return vector[:dim]
+    return vector + [0.0] * (dim - len(vector))
+
+
 def embed_texts(texts: List[str]) -> List[List[float]]:
     """Gera embeddings para uma lista de textos."""
     if not texts:
         return []
 
-    api_key = os.getenv("GOOGLE_API_KEY", "").strip()
-    if not api_key:
+    voyage_key = os.getenv("VOYAGE_API_KEY", "").strip()
+    if not voyage_key:
         return [_deterministic_embedding(t) for t in texts]
 
-    from langchain_google_genai import GoogleGenerativeAIEmbeddings
+    import voyageai
 
-    model = GoogleGenerativeAIEmbeddings(
-        model=EMBEDDING_MODEL,
-        google_api_key=api_key,
+    client = voyageai.Client(api_key=voyage_key)
+    # Anthropic não expõe embeddings; Voyage é o parceiro recomendado (mesma dim compatível com pgvector).
+    output_dim = min(EMBEDDING_DIM, 512)  # voyage-3-lite suporta 512 nativamente
+    result = client.embed(
+        texts,
+        model=VOYAGE_EMBEDDING_MODEL,
+        output_dimension=output_dim,
     )
-    return model.embed_documents(texts)
+    return [_fit_embedding(list(vec)) for vec in result.embeddings]

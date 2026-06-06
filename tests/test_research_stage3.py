@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-for-stage3-tests")
-os.environ.pop("GOOGLE_API_KEY", None)
+os.environ.pop("ANTHROPIC_API_KEY", None)
+os.environ.pop("VOYAGE_API_KEY", None)
 os.environ.pop("TAVILY_API_KEY", None)
 
 from app.agents.financial import financial_node

@@ -6,7 +6,8 @@ EVA is an autonomous M&A agent that generates CIMs, valuations and due diligence
 
 - **FastAPI** — HTTP API and background job orchestration
 - **LangGraph** — sequential agent pipeline (research → financial → document → qa)
-- **LangChain + Google Gemini** — LLM synthesis, embeddings and KPI extraction
+- **LangChain + Anthropic Claude** — LLM synthesis and KPI extraction
+- **Voyage AI** — embeddings for RAG (Anthropic-recommended partner)
 - **SQLAlchemy + Postgres** — **fonte de verdade** (deals, documentos, artefatos, jobs, conversas, RAG)
 - **Tavily / Yahoo Finance** — research and financial data (marked `external` when used)
 - **python-pptx / python-docx** — document generation
@@ -16,7 +17,8 @@ EVA is an autonomous M&A agent that generates CIMs, valuations and due diligence
 - Python 3.11+
 - **DATABASE_URL** — Postgres in production (SQLite `eva_workspace.db` in local dev if omitted)
 - **JWT_SECRET_KEY** — auth for the web platform
-- **GOOGLE_API_KEY**, **TAVILY_API_KEY** — pipeline LLM and search
+- **ANTHROPIC_API_KEY**, **TAVILY_API_KEY** — pipeline LLM and search
+- **VOYAGE_API_KEY** — embeddings for data room RAG (optional in dev/tests)
 
 ### Optional
 
@@ -36,7 +38,7 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-# Fill DATABASE_URL, JWT_SECRET_KEY, GOOGLE_API_KEY, TAVILY_API_KEY
+# Fill DATABASE_URL, JWT_SECRET_KEY, ANTHROPIC_API_KEY, TAVILY_API_KEY
 
 alembic upgrade head   # production Postgres
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000

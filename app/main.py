@@ -907,7 +907,7 @@ def _run_job(
         error_msg = str(exc)
         if any(token in error_msg.lower() for token in ("429", "quota", "rate limit")):
             error_msg = (
-                "Limite de uso da API Gemini atingido. "
+                "Limite de uso da API Anthropic atingido. "
                 "Aguarde cerca de 1 minuto e tente novamente."
             )
         update_job(job_id, status=JobStatus.ERROR.value, error=error_msg)

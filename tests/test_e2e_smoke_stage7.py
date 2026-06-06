@@ -20,7 +20,8 @@ from fastapi.testclient import TestClient
 
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret-e2e")
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
-os.environ["GOOGLE_API_KEY"] = ""
+os.environ["ANTHROPIC_API_KEY"] = ""
+os.environ["VOYAGE_API_KEY"] = ""
 
 from app.auth import create_access_token
 from app.citations.matching import CitationStatus, audit_financial_field, audits_to_serializable

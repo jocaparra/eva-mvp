@@ -2,23 +2,23 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Union
 
 from dotenv import load_dotenv
 from langchain_core.messages import BaseMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_anthropic import ChatAnthropic
 
 ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(ENV_PATH)
 
-DEFAULT_MODEL = "gemini-2.0-flash-lite"
+DEFAULT_MODEL = "claude-sonnet-4-20250514"
 
 
-def get_google_api_key() -> str:
-    api_key = os.getenv("GOOGLE_API_KEY")
+def get_anthropic_api_key() -> str:
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if not api_key:
         raise ValueError(
-            "GOOGLE_API_KEY não encontrada. Defina no arquivo .env na raiz do projeto."
+            "ANTHROPIC_API_KEY não encontrada. Defina no arquivo .env na raiz do projeto."
         )
     return api_key
 
@@ -45,30 +45,51 @@ def _is_rate_limit_error(error: Exception) -> bool:
     msg = str(error).lower()
     return any(
         token in msg
-        for token in ("429", "quota", "rate limit", "resourceexhausted", "too many requests")
+        for token in ("429", "quota", "rate limit", "overloaded", "too many requests")
     )
 
 
-def get_llm() -> ChatGoogleGenerativeAI:
-    model = os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
-    return ChatGoogleGenerativeAI(
+def _message_content_to_str(content: Union[str, list, None]) -> str:
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict):
+                if block.get("type") == "text":
+                    parts.append(str(block.get("text", "")))
+            elif hasattr(block, "text"):
+                parts.append(str(block.text))
+            else:
+                parts.append(str(block))
+        return "".join(parts)
+    return str(content)
+
+
+def get_llm() -> ChatAnthropic:
+    model = os.getenv("ANTHROPIC_MODEL", DEFAULT_MODEL)
+    return ChatAnthropic(
         model=model,
         temperature=0,
-        google_api_key=get_google_api_key(),
-        max_output_tokens=1024,
+        api_key=get_anthropic_api_key(),
+        max_tokens=4096,
         max_retries=0,
     )
 
 
 def invoke_llm(messages: Sequence[BaseMessage], max_retries: int = 5) -> str:
-    """Invoke Gemini with automatic backoff on 429 / quota errors."""
+    """Invoke Claude with automatic backoff on 429 / rate limits."""
     llm = get_llm()
     last_error: Optional[Exception] = None
 
     for attempt in range(max_retries):
         try:
             response = llm.invoke(messages)
-            return response.content
+            return _message_content_to_str(response.content)
         except Exception as exc:
             last_error = exc
             if _is_rate_limit_error(exc) and attempt < max_retries - 1:

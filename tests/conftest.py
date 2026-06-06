@@ -6,13 +6,14 @@ import os
 
 import pytest
 
-# load_dotenv (via app.database) repõe GOOGLE_API_KEY do .env após imports dos testes;
-# forçamos embeddings locais para não depender de rede/API em CI e sandbox.
+# load_dotenv repõe chaves do .env após imports; forçamos modo offline em CI.
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key")
-os.environ["GOOGLE_API_KEY"] = ""
+os.environ["ANTHROPIC_API_KEY"] = ""
+os.environ["VOYAGE_API_KEY"] = ""
 
 
 @pytest.fixture(autouse=True)
-def _deterministic_embeddings():
-    os.environ["GOOGLE_API_KEY"] = ""
+def _offline_llm_and_embeddings():
+    os.environ["ANTHROPIC_API_KEY"] = ""
+    os.environ["VOYAGE_API_KEY"] = ""
     yield

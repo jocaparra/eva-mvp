@@ -17,7 +17,9 @@ App já configurado em `https://eva-mvp-production.up.railway.app` (ver `BASE_UR
 |----------|-----------------|
 | `DATABASE_URL` | `postgresql://postgres.[ref]:[pwd]@...supabase.com:6543/postgres` |
 | `JWT_SECRET_KEY` | string aleatória 32+ chars |
-| `GOOGLE_API_KEY` | Gemini |
+| `ANTHROPIC_API_KEY` | Claude (LLM) |
+| `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` |
+| `VOYAGE_API_KEY` | Embeddings RAG (recomendado em prod) |
 | `TAVILY_API_KEY` | pesquisa web |
 | `BASE_URL` | `https://eva-mvp-production.up.railway.app` |
 | `PRESENTON_API_KEY` | geração PPT (ou template local) |
@@ -26,8 +28,8 @@ App já configurado em `https://eva-mvp-production.up.railway.app` (ver `BASE_UR
 
 | Variável | Valor sugerido |
 |----------|----------------|
-| `GEMINI_MODEL` | `gemini-2.0-flash-lite` |
-| `GEMINI_EMBEDDING_MODEL` | `models/text-embedding-004` |
+| `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` |
+| `VOYAGE_EMBEDDING_MODEL` | `voyage-3-lite` |
 | `WHATSAPP_OPEN_ACCESS` | `false` em prod (ou lista em `WHATSAPP_ALLOWED_PHONES`) |
 
 ### Persistência de arquivos (escolha uma)
@@ -110,7 +112,7 @@ Railway redeploy automático se CI/CD ligado ao repo.
 |---------|----------------|------|
 | 503 `JWT_SECRET_KEY não configurada` | falta env | definir `JWT_SECRET_KEY` |
 | Login OK, deals 500 | migrations | ver logs `alembic upgrade head` |
-| Upload PDF OK, RAG vazio | pgvector / embeddings | checar `GOOGLE_API_KEY`, logs ingestão |
+| Upload PDF OK, RAG vazio | embeddings | checar `VOYAGE_API_KEY`, logs ingestão |
 | Download 404 após redeploy | disco efêmero | volume `/data` ou `ARTIFACT_STORAGE=supabase` |
 | `postgres://` driver error | URL antiga | já normalizado em `app/database.py` |
 
