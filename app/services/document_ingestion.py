@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from pathlib import Path
 from typing import Tuple
@@ -15,7 +16,12 @@ from app.ingestion.loaders import is_ingestible, load_document
 from app.models.deal_workspace import WorkspaceDocument
 from app.repositories.deal_workspace import DealAccessDeniedError, DealNotFoundError, get_deal_for_owner
 
-UPLOAD_ROOT = Path(__file__).resolve().parent.parent.parent / "uploads" / "deal_workspace"
+UPLOAD_ROOT = Path(
+    os.getenv(
+        "DEAL_UPLOAD_PATH",
+        str(Path(__file__).resolve().parent.parent.parent / "uploads" / "deal_workspace"),
+    )
+)
 
 
 def ingest_deal_document(

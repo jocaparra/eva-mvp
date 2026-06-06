@@ -1,37 +1,21 @@
-"""Persistência de jobs — Supabase com fallback em memória."""
+"""Persistência de jobs — SQLAlchemy (Postgres/SQLite)."""
 
 from __future__ import annotations
 
-import uuid
 from typing import Any, Optional
 
+from sqlalchemy.orm import Session
+
 from app.audit import log_action
-from app.db import get_supabase
-from app.document_types import confirmation_message
-
-_memory_jobs: dict[str, dict[str, Any]] = {}
-
-
-def _row_to_job(row: dict[str, Any]) -> dict[str, Any]:
-    doc_type = row.get("document_type", "CIM")
-    company = row.get("company_name", "")
-    return {
-        "id": str(row["id"]),
-        "company_name": company,
-        "document_type": doc_type,
-        "client_id": row.get("phone", "default"),
-        "phone": row.get("phone", "default"),
-        "status": row.get("status", "pending"),
-        "confirmation_message": confirmation_message(doc_type, company),
-        "ppt_path": row.get("ppt_path"),
-        "ppt_filename": row.get("ppt_filename"),
-        "qa_passed": row.get("qa_passed"),
-        "qa_issues": row.get("qa_issues") or [],
-        "error": row.get("error"),
-        "whatsapp_phone": row.get("phone"),
-        "deal_id": row.get("deal_id") or "",
-        "conversation_id": row.get("conversation_id") or "",
-    }
+from app.database import session_scope
+from app.repositories.generation_job import (
+    create_generation_job,
+    get_generation_job,
+    job_to_record,
+    list_generation_jobs,
+    phone_has_generation_jobs,
+    update_generation_job,
+)
 
 
 def create_job(
@@ -42,106 +26,65 @@ def create_job(
     client_id: str = "default",
     deal_id: str = "",
     conversation_id: str = "",
+    db: Optional[Session] = None,
 ) -> str:
-    job_id = str(uuid.uuid4())
-    phone_value = phone or client_id or "default"
-    payload = {
-        "id": job_id,
-        "phone": phone_value,
-        "company_name": company_name,
-        "document_type": doc_type,
-        "status": "pending",
-    }
-    if deal_id:
-        payload["deal_id"] = deal_id
-    if conversation_id:
-        payload["conversation_id"] = conversation_id
+    owner = phone or client_id or "default"
 
-    client = get_supabase()
-    if client:
-        client.table("jobs").insert(payload).execute()
+    def _create(session: Session) -> str:
+        job = create_generation_job(
+            session,
+            company_name=company_name,
+            document_type=doc_type,
+            owner_phone=owner,
+            deal_id=deal_id or None,
+            conversation_id=conversation_id or None,
+        )
         log_action(
-            phone_value,
+            owner,
             "job_created",
             resource_type="job",
-            resource_id=job_id,
+            resource_id=str(job.id),
             metadata={"document_type": doc_type},
         )
-    else:
-        _memory_jobs[job_id] = _row_to_job(
-            {**payload, "qa_passed": None, "qa_issues": None}
-        )
+        return str(job.id)
 
-    return job_id
+    if db is not None:
+        return _create(db)
 
-
-def get_job(job_id: str, phone: Optional[str] = None) -> Optional[dict[str, Any]]:
-    client = get_supabase()
-    if client:
-        query = client.table("jobs").select("*").eq("id", job_id)
-        if phone:
-            query = query.eq("phone", phone)
-        result = query.maybe_single().execute()
-        row = result.data
-        if not row:
-            return None
-        return _row_to_job(row)
-
-    job = _memory_jobs.get(job_id)
-    if not job:
-        return None
-    if phone and job.get("phone") != phone:
-        return None
-    return job
+    with session_scope() as session:
+        return _create(session)
 
 
-def update_job(job_id: str, **fields: Any) -> Optional[dict[str, Any]]:
-    fields = {k: v for k, v in fields.items() if v is not None or k in ("error", "qa_issues")}
-    client = get_supabase()
-    if client:
-        if fields:
-            client.table("jobs").update(fields).eq("id", job_id).execute()
-        return get_job(job_id)
+def get_job(job_id: str, phone: Optional[str] = None, db: Optional[Session] = None) -> Optional[dict[str, Any]]:
+    def _get(session: Session) -> Optional[dict[str, Any]]:
+        job = get_generation_job(session, job_id, owner_phone=phone)
+        return job_to_record(job) if job else None
 
-    if job_id not in _memory_jobs:
-        return None
-    _memory_jobs[job_id].update(fields)
-    return _memory_jobs[job_id]
+    if db is not None:
+        return _get(db)
+
+    with session_scope() as session:
+        return _get(session)
+
+
+def update_job(job_id: str, db: Optional[Session] = None, **fields: Any) -> Optional[dict[str, Any]]:
+    def _update(session: Session) -> Optional[dict[str, Any]]:
+        job = update_generation_job(session, job_id, **fields)
+        return job_to_record(job) if job else None
+
+    if db is not None:
+        return _update(db)
+
+    with session_scope() as session:
+        return _update(session)
 
 
 def phone_has_jobs(phone: str) -> bool:
-    client = get_supabase()
-    if client:
-        try:
-            result = (
-                client.table("jobs")
-                .select("id")
-                .eq("phone", phone)
-                .limit(1)
-                .execute()
-            )
-            return bool(result.data)
-        except Exception:
-            return False
-
-    return any(job.get("phone") == phone for job in _memory_jobs.values())
+    with session_scope() as session:
+        return phone_has_generation_jobs(session, phone)
 
 
 def list_jobs(phone: str, limit: int = 50) -> list[dict[str, Any]]:
-    client = get_supabase()
-    if client:
-        try:
-            result = (
-                client.table("jobs")
-                .select("*")
-                .eq("phone", phone)
-                .order("created_at", desc=True)
-                .limit(limit)
-                .execute()
-            )
-            return [_row_to_job(row) for row in (result.data or [])]
-        except Exception:
-            return []
-
-    jobs = [job for job in _memory_jobs.values() if job.get("phone") == phone]
-    return jobs[:limit]
+    with session_scope() as session:
+        jobs = list_generation_jobs(session, phone, limit=limit)
+        return [job_to_record(job) for job in jobs]

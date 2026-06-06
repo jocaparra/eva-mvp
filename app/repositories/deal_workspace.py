@@ -32,6 +32,21 @@ def create_deal(session: Session, *, company_name: str, owner_phone: str) -> Dea
     return deal
 
 
+def list_deals_for_owner(session: Session, owner_phone: str, limit: int = 50) -> list[DealWorkspace]:
+    """Lista deals do usuário, mais recentes primeiro."""
+    return (
+        session.query(DealWorkspace)
+        .options(
+            selectinload(DealWorkspace.documents),
+            selectinload(DealWorkspace.artifacts),
+        )
+        .filter(DealWorkspace.owner_phone == owner_phone)
+        .order_by(DealWorkspace.updated_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+
 def get_deal_for_owner(session: Session, deal_id: UUID, owner_phone: str) -> DealWorkspace:
     """Busca deal garantindo isolamento por owner_phone."""
     deal = (

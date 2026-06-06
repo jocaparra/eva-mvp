@@ -54,20 +54,15 @@ def test_no_duplicate_route_methods():
     assert not duplicates, f"Rotas duplicadas: {duplicates}"
 
 
-def test_upload_route_is_document_processor_not_storage(client, auth_headers):
-    """POST /upload deve ser upload_document (contexto efêmero), não Supabase."""
+def test_upload_route_removed(client, auth_headers):
+    """POST /upload foi removido — ingestão via /conversations/{id}/documents."""
     with patch("app.db.get_supabase", return_value=None):
-        with patch(
-            "app.main.process_web_document_upload",
-            return_value={"status": "processed", "context_available": True, "expires_in": "30min"},
-        ) as mock_process:
-            res = client.post(
-                "/upload",
-                headers=auth_headers,
-                files={"file": ("teaser.pdf", io.BytesIO(b"%PDF-1.4 test"), "application/pdf")},
-            )
-    assert res.status_code == 200, res.text
-    mock_process.assert_called_once()
+        res = client.post(
+            "/upload",
+            headers=auth_headers,
+            files={"file": ("teaser.pdf", io.BytesIO(b"%PDF-1.4 test"), "application/pdf")},
+        )
+    assert res.status_code == 404
 
 
 def test_files_upload_returns_409_when_storage_off(client, auth_headers):

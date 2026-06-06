@@ -28,6 +28,7 @@ from app.repositories.deal_workspace import (
     DealNotFoundError,
     create_deal,
     get_deal_for_owner,
+    list_deals_for_owner,
     to_deal_state,
 )
 from app.schemas.deal_workspace import (
@@ -35,7 +36,9 @@ from app.schemas.deal_workspace import (
     ApproveArtifactResponse,
     ArtifactReviewResponse,
     CreateDealRequest,
+    DealListItemResponse,
     DealWorkspaceResponse,
+    WorkspaceArtifactResponse,
     WorkspaceDocumentResponse,
 )
 from app.services.artifact_review import build_artifact_review
@@ -67,8 +70,9 @@ from app.schemas.conversation import (
     MessageResponse,
 )
 from app.services.document_ingestion import ingest_deal_document
+from app.services.artifact_persistence import persist_pipeline_artifact
 from app.services.conversation_jobs import finalize_conversation_job, prepare_conversation_job
-from app.utils.client_documents import process_web_document_upload
+from app.storage.artifact_storage import get_artifact_storage, guess_content_type
 from app.utils.doc_cache import cleanup_expired, clear_context, get_context, get_context_meta
 from app.utils.template import save_client_template
 from app.whatsapp import send_dashboard_ready, send_download_link, send_error, send_message
@@ -79,6 +83,111 @@ from app.whatsapp_templates import handle_whatsapp_template_upload
 load_dotenv(ENV_PATH)
 
 app = FastAPI(title="EVA", description="Autonomous document generation agent")
+
+
+@app.get("/health")
+def health_check():
+    """Healthcheck para Railway/load balancers."""
+    return {"status": "ok"}
+
+
+def _artifact_type_label(artifact_type: str) -> str:
+    mapping = {"cim_pptx": "CIM", "memo_docx": "MEMO", "CIM": "CIM", "VALUATION": "VALUATION"}
+    return mapping.get(artifact_type, artifact_type.upper())
+
+
+def _artifact_download_media_type(artifact_type: str, file_path: str) -> str:
+    suffix = Path(file_path).suffix.lower()
+    if suffix == ".docx" or "memo" in artifact_type.lower():
+        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+
+
+def _artifact_download_response(artifact):
+    """Monta resposta HTTP para download de um WorkspaceArtifact."""
+    if not artifact.file_path:
+        raise HTTPException(status_code=404, detail="Arquivo não disponível")
+    filename = artifact.file_path.split("/")[-1]
+    media_type = _artifact_download_media_type(artifact.artifact_type, filename)
+    storage = get_artifact_storage()
+    if not storage.exists(artifact.file_path):
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado no storage")
+    return storage.build_download_response(
+        artifact.file_path,
+        filename=filename,
+        media_type=media_type,
+    )
+
+
+def _to_deal_list_item(deal) -> DealListItemResponse:
+    docs = [WorkspaceDocumentResponse.model_validate(d) for d in (deal.documents or [])]
+    artifacts = [WorkspaceArtifactResponse.model_validate(a) for a in (deal.artifacts or [])]
+    ready = any(
+        a.file_path and a.status in ("ready", "approved", "needs_review")
+        for a in artifacts
+    )
+    doc_type = _artifact_type_label(artifacts[0].artifact_type) if artifacts else "CIM"
+    return DealListItemResponse(
+        id=deal.id,
+        deal_id=deal.id,
+        company_name=deal.company_name,
+        nome=deal.company_name,
+        status=deal.status,
+        created_at=deal.created_at,
+        updated_at=deal.updated_at,
+        criado_em=deal.created_at,
+        document_count=len(docs),
+        artifact_count=len(artifacts),
+        has_ready_artifact=ready,
+        document_type=doc_type,
+        documentos=docs,
+        artifacts=artifacts,
+    )
+
+
+def _legacy_deal_detail(deal) -> dict:
+    """Formato compatível com GET /deal/{id} legado + dados SQLAlchemy."""
+    documentos = []
+    for doc in deal.documents or []:
+        documentos.append(
+            {
+                "id": str(doc.id),
+                "source_file": doc.source_file,
+                "tipo": "data_room",
+                "nome": doc.source_file,
+                "status": doc.status,
+                "criado_em": doc.created_at.isoformat(),
+            }
+        )
+    for art in deal.artifacts or []:
+        if art.file_path:
+            documentos.append(
+                {
+                    "id": str(art.id),
+                    "source_file": art.file_path.split("/")[-1],
+                    "tipo": art.artifact_type,
+                    "status": art.status,
+                    "criado_em": art.created_at.isoformat(),
+                    "artifact_id": str(art.id),
+                    "qa_passed": art.qa_passed,
+                    "approved": art.approved,
+                }
+            )
+    return {
+        "deal": {
+            "id": str(deal.id),
+            "deal_id": str(deal.id),
+            "company_name": deal.company_name,
+            "nome": deal.company_name,
+            "status": deal.status,
+            "criado_em": deal.created_at.isoformat(),
+            "updated_at": deal.updated_at.isoformat(),
+        },
+        "documentos": documentos,
+        "documents": [WorkspaceDocumentResponse.model_validate(d).model_dump(mode="json") for d in deal.documents or []],
+        "artifacts": [WorkspaceArtifactResponse.model_validate(a).model_dump(mode="json") for a in deal.artifacts or []],
+    }
+
 
 app.include_router(auth_router)
 
@@ -520,119 +629,111 @@ def aprovar_artifact(
     )
 
 
-@app.get("/deals")
-async def listar_deals(auth_phone: AuthPhone):
-    from app.db import get_supabase
-    client = get_supabase()
-    if not client:
-        raise HTTPException(status_code=503, detail="Banco não configurado")
-    firma = (
-        client.table("firmas")
-        .select("id")
-        .eq("whatsapp", auth_phone)
-        .maybe_single()
-        .execute()
-    )
-    if not firma.data:
-        return []
-    res = (
-        client.table("deals")
-        .select("*, documentos(*)")
-        .eq("firma_id", firma.data["id"])
-        .order("criado_em", desc=True)
-        .execute()
-    )
-    return res.data or []
+@app.get("/deals/{deal_id}/artifacts/{artifact_id}/download")
+def download_artifact(
+    deal_id: str,
+    artifact_id: str,
+    auth_phone: AuthPhone,
+    db: Session = Depends(get_db),
+):
+    """Download autenticado do artefato gerado via object storage."""
+    from uuid import UUID
+
+    try:
+        deal_uuid = UUID(deal_id)
+        artifact_uuid = UUID(artifact_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="ID inválido") from exc
+
+    try:
+        artifact = get_artifact_for_owner(db, deal_uuid, artifact_uuid, auth_phone)
+    except DealNotFoundError:
+        raise HTTPException(status_code=404, detail="Deal não encontrado")
+    except DealAccessDeniedError:
+        raise HTTPException(status_code=403, detail="Acesso negado")
+    except ArtifactNotFoundError:
+        raise HTTPException(status_code=404, detail="Artefato não encontrado")
+
+    if not artifact.file_path:
+        raise HTTPException(status_code=404, detail="Arquivo não disponível")
+
+    return _artifact_download_response(artifact)
+
+
+@app.get("/deals", response_model=List[DealListItemResponse])
+def listar_deals(auth_phone: AuthPhone, db: Session = Depends(get_db)):
+    """Lista deals do workspace SQLAlchemy (sem Supabase)."""
+    deals = list_deals_for_owner(db, auth_phone)
+    return [_to_deal_list_item(deal) for deal in deals]
 
 
 @app.get("/deal/{deal_id}")
-async def ver_deal(deal_id: str, auth_phone: AuthPhone):
-    from app.db import get_supabase
-    from app.supabase_ops import get_signed_url
-    client = get_supabase()
-    if not client:
-        raise HTTPException(status_code=503, detail="Banco não configurado")
-    firma = (
-        client.table("firmas")
-        .select("id")
-        .eq("whatsapp", auth_phone)
-        .maybe_single()
-        .execute()
-    )
-    if not firma.data:
-        raise HTTPException(status_code=403, detail="Acesso negado")
-    deal = (
-        client.table("deals")
-        .select("*")
-        .eq("id", deal_id)
-        .eq("firma_id", firma.data["id"])
-        .maybe_single()
-        .execute()
-    )
-    if not deal.data:
+def ver_deal(deal_id: str, auth_phone: AuthPhone, db: Session = Depends(get_db)):
+    """Detalhe do deal — documentos ingeridos + artefatos gerados (SQLAlchemy)."""
+    from uuid import UUID
+
+    try:
+        deal_uuid = UUID(deal_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="ID de deal inválido") from exc
+    try:
+        deal = get_deal_for_owner(db, deal_uuid, auth_phone)
+    except DealNotFoundError:
         raise HTTPException(status_code=404, detail="Deal não encontrado")
-    docs = client.table("documentos").select("*").eq("deal_id", deal_id).execute()
-    documentos_com_url = []
-    for doc in (docs.data or []):
-        try:
-            url = get_signed_url(doc["storage_path"])
-            documentos_com_url.append({**doc, "download_url": url})
-        except Exception:
-            documentos_com_url.append(doc)
-    return {"deal": deal.data, "documentos": documentos_com_url}
+    except DealAccessDeniedError:
+        raise HTTPException(status_code=403, detail="Acesso negado")
+    return _legacy_deal_detail(deal)
 
 
 @app.get("/deal/{deal_id}/download/{doc_id}")
-async def download_documento(
+def download_documento(
     deal_id: str,
     doc_id: str,
-    request: Request,
-    token: Optional[str] = None,
+    auth_phone: AuthPhone,
+    db: Session = Depends(get_db),
 ):
-    from app.auth import verify_access_token
-    from app.db import get_supabase
-    from fastapi.responses import RedirectResponse
-    auth_header = request.headers.get("Authorization", "")
-    raw_token = token or (auth_header.replace("Bearer ", "") if auth_header else None)
-    if not raw_token:
-        raise HTTPException(status_code=401, detail="Token necessário")
-    phone = verify_access_token(raw_token)
-    client = get_supabase()
-    if not client:
-        raise HTTPException(status_code=503, detail="Banco não configurado")
-    firma = (
-        client.table("firmas")
-        .select("id")
-        .eq("whatsapp", phone)
-        .maybe_single()
-        .execute()
-    )
-    if not firma.data:
+    """Download legado — data room (WorkspaceDocument) ou artefato gerado (SQLAlchemy)."""
+    from uuid import UUID
+
+    from app.models.deal_workspace import WorkspaceDocument
+
+    try:
+        deal_uuid = UUID(deal_id)
+        resource_uuid = UUID(doc_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="ID inválido") from exc
+
+    try:
+        get_deal_for_owner(db, deal_uuid, auth_phone)
+    except DealNotFoundError:
+        raise HTTPException(status_code=404, detail="Deal não encontrado")
+    except DealAccessDeniedError:
         raise HTTPException(status_code=403, detail="Acesso negado")
-    deal = (
-        client.table("deals")
-        .select("id")
-        .eq("id", deal_id)
-        .eq("firma_id", firma.data["id"])
-        .maybe_single()
-        .execute()
+
+    document = (
+        db.query(WorkspaceDocument)
+        .filter(
+            WorkspaceDocument.id == resource_uuid,
+            WorkspaceDocument.deal_id == deal_uuid,
+        )
+        .one_or_none()
     )
-    if not deal.data:
-        raise HTTPException(status_code=403, detail="Deal não encontrado")
-    doc = (
-        client.table("documentos")
-        .select("storage_path, tipo")
-        .eq("id", doc_id)
-        .eq("deal_id", deal_id)
-        .maybe_single()
-        .execute()
-    )
-    if not doc.data:
+    if document and document.storage_path:
+        path = Path(document.storage_path)
+        if path.is_file():
+            media_type = document.mime_type or guess_content_type(document.source_file)
+            return FileResponse(
+                path=str(path),
+                filename=document.source_file,
+                media_type=media_type,
+            )
+
+    try:
+        artifact = get_artifact_for_owner(db, deal_uuid, resource_uuid, auth_phone)
+    except ArtifactNotFoundError:
         raise HTTPException(status_code=404, detail="Documento não encontrado")
-    signed = client.storage.from_("documentos").create_signed_url(
-        doc.data["storage_path"], 3600
-    )
-    return RedirectResponse(url=signed["signedURL"])
+
+    return _artifact_download_response(artifact)
 
 
 class JobStatus(str, Enum):
@@ -657,12 +758,6 @@ class CreateJobRequest(BaseModel):
 class WebJobRequest(BaseModel):
     message: str = Field(..., min_length=1, examples=["Valuation da Apple"])
     conversation_id: Optional[str] = None
-
-
-class UploadProcessedResponse(BaseModel):
-    status: str = "processed"
-    context_available: bool = True
-    expires_in: str = "30min"
 
 
 class JobRecord(BaseModel):
@@ -718,11 +813,12 @@ async def gerar_artifact_deal(
         phone=auth_phone,
         client_id=auth_phone,
         deal_id=deal_id,
+        db=db,
     )
 
     background_tasks.add_task(_run_job, job_id, company_name, document_type, auth_phone)
 
-    job = get_job(job_id, phone=auth_phone)
+    job = get_job(job_id, phone=auth_phone, db=db)
     if not job:
         raise HTTPException(status_code=500, detail="Failed to create job")
     return JobRecord(**job)
@@ -759,6 +855,8 @@ def _run_job(
             client_context=client_context,
             deal_id=(job or {}).get("deal_id") or "",
         )
+        deal_id = (job or {}).get("deal_id") or ""
+        result = persist_pipeline_artifact(result, deal_id=deal_id, job_id=job_id)
         update_job(
             job_id,
             status=JobStatus.DONE.value,
@@ -767,7 +865,6 @@ def _run_job(
             qa_passed=result.get("qa_passed"),
             qa_issues=result.get("qa_issues", []),
         )
-        deal_id = (job or {}).get("deal_id") or ""
         if deal_id:
             from uuid import UUID
 
@@ -860,18 +957,8 @@ def run_job_and_notify(
     job = get_job(job_id) or {}
 
     if job.get("status") == JobStatus.DONE.value:
-        ppt_path = job.get("ppt_path")
-        try:
-            from app.supabase_ops import get_or_create_firma, criar_deal, salvar_documento
-            from app.whatsapp import send_platform_link
-            firma_id = get_or_create_firma(notify_phone)
-            deal_id  = criar_deal(firma_id, company_name)
-            salvar_documento(deal_id, firma_id, doc_type, ppt_path)
-            send_platform_link(notify_phone, deal_id, company_name)
-        except Exception as e:
-            print(f"[storage] Falha ao salvar no Supabase: {e}")
-            filename = job.get("ppt_filename") or f"{company_name}_{doc_type}.pptx"
-            send_download_link(notify_phone, job_id, filename)
+        filename = job.get("ppt_filename") or f"{company_name}_{doc_type}.pptx"
+        send_download_link(notify_phone, job_id, filename)
         record_job(notify_phone)
     else:
         send_error(notify_phone, company_name)
@@ -960,6 +1047,7 @@ async def submit_web_job(
         client_id=auth_phone,
         deal_id=deal_id,
         conversation_id=conversation_id,
+        db=db,
     )
 
     if conversation_id:
@@ -972,7 +1060,7 @@ async def submit_web_job(
                 user_message=message,
                 job_id=job_id,
             )
-            update_job(job_id, deal_id=deal_id)
+            update_job(job_id, deal_id=deal_id, db=db)
         except (ConversationNotFoundError, ConversationAccessDeniedError) as exc:
             _conversation_http_errors(exc)
 
@@ -987,7 +1075,7 @@ async def submit_web_job(
         conversation_id=conversation_id,
     )
 
-    job = get_job(job_id, phone=auth_phone)
+    job = get_job(job_id, phone=auth_phone, db=db)
     if not job:
         raise HTTPException(status_code=500, detail="Failed to create job")
     if deal_id:
@@ -1020,32 +1108,6 @@ async def upload_template(client_id: str, file: UploadFile = File(...)):
         "path": storage_path,
         "filename": file.filename,
     }
-
-
-@app.post("/upload", response_model=UploadProcessedResponse)
-async def upload_document(auth_phone: AuthPhone, file: UploadFile = File(...)):
-    """Upload efêmero de documento para contexto de análise (JWT obrigatório)."""
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="Nome de arquivo ausente.")
-
-    content = await file.read()
-    mime_type = file.content_type or ""
-
-    try:
-        result = process_web_document_upload(
-            auth_phone,
-            content,
-            file.filename,
-            mime_type,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail="Falha ao processar documento.") from exc
-    finally:
-        del content
-
-    return UploadProcessedResponse(**result)
 
 
 @app.post("/templates/upload")
@@ -1106,15 +1168,19 @@ def download_job(job_id: str, auth_phone: AuthPhone):
         )
 
     ppt_path = job.get("ppt_path")
-    if not ppt_path or not Path(ppt_path).exists():
+    if not ppt_path:
         raise HTTPException(status_code=404, detail="PPT file not found")
 
     filename = job.get("ppt_filename") or f"{job['company_name']}_{job['document_type']}.pptx"
+    media_type = _artifact_download_media_type(job.get("document_type", "CIM"), filename)
+    storage = get_artifact_storage()
+    if not storage.exists(ppt_path):
+        raise HTTPException(status_code=404, detail="PPT file not found")
 
-    return FileResponse(
-        path=ppt_path,
+    return storage.build_download_response(
+        ppt_path,
         filename=filename,
-        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        media_type=media_type,
     )
 
 

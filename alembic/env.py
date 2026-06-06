@@ -7,8 +7,7 @@ from sqlalchemy import engine_from_config, pool
 
 from app.database import get_database_url
 from app.models.base import Base
-from app.models.deal_workspace import DealWorkspace, WorkspaceArtifact, WorkspaceDocument  # noqa: F401
-from app.models.document_chunk import DocumentChunk  # noqa: F401
+import app.models  # noqa: F401 — metadata completo para migrations
 
 config = context.config
 config.set_main_option("sqlalchemy.url", get_database_url())

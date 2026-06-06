@@ -4,5 +4,6 @@ __pycache__/
 .env
 eva_workspace.db
 outputs/*.pptx
+artifact_storage/
 uploads/
 .DS_Store

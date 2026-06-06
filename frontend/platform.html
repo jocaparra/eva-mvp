@@ -95,6 +95,18 @@ body { font-family: 'Inter', sans-serif; background: #fff; display: flex; height
 .doc-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 11px; }
 .doc-table th { background: #f5f5f5; padding: 7px 10px; text-align: left; font-weight: 600; color: #333; border: 1px solid #e8e8e8; }
 .doc-table td { padding: 6px 10px; border: 1px solid #e8e8e8; color: #444; }
+.audit-cited { background: #F0FDF4; color: #16A34A; }
+.audit-divergent { background: #FEF2F2; color: #DC2626; }
+.audit-uncited { background: #FFF7ED; color: #EA580C; }
+.audit-badge { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; }
+.qa-issue { background: #FEF2F2; border-left: 3px solid #DC2626; padding: 8px 10px; margin: 6px 0; font-size: 11px; color: #991B1B; border-radius: 0 6px 6px 0; }
+.qa-ok { background: #F0FDF4; border-left: 3px solid #16A34A; padding: 8px 10px; font-size: 11px; color: #166534; border-radius: 0 6px 6px 0; }
+.approve-section { padding: 12px 18px; border-top: 1px solid #f0f0f0; background: #fafafa; }
+.override-box { margin-bottom: 10px; }
+.override-box label { display: block; font-size: 11px; font-weight: 600; color: #666; margin-bottom: 4px; }
+.override-box textarea { width: 100%; min-height: 56px; padding: 8px; border: 1px solid #e8e8e8; border-radius: 6px; font-family: inherit; font-size: 12px; resize: vertical; }
+.approved-badge { font-size: 11px; font-weight: 600; color: #16A34A; }
+.candidate { font-size: 10px; color: #666; margin-top: 4px; padding-left: 8px; border-left: 2px solid #e8e8e8; }
 .right-footer { padding: 10px 18px; border-top: 1px solid #f0f0f0; display: flex; align-items: center; justify-content: space-between; }
 .right-footer span { font-size: 11px; color: #ccc; }
 .page-nav { display: flex; align-items: center; gap: 6px; }
@@ -252,6 +264,17 @@ body { font-family: 'Inter', sans-serif; background: #fff; display: flex; height
     <div class="doc-h1">Documento carregando...</div>
   </div>
 
+  <div class="approve-section" id="approveSection" style="display:none">
+    <div class="override-box" id="overrideBox" style="display:none">
+      <label for="overrideReason">Justificativa (obrigatória — há issues bloqueantes)</label>
+      <textarea id="overrideReason" placeholder="Ex.: número confirmado com o CFO em call..."></textarea>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <button class="btn-sm btn-dark" id="approveBtn" onclick="approveArtifact()">✓ Aprovar documento</button>
+      <span class="approved-badge" id="approvedBadge" style="display:none"></span>
+    </div>
+  </div>
+
   <div class="right-footer">
     <span>EVA · oxai.online · Confidencial</span>
     <div class="page-nav">
@@ -269,6 +292,7 @@ let phone = localStorage.getItem('eva_phone');
 let pollTimer = null;
 let currentConversationId = null;
 let currentDealId = null;
+let currentArtifactReview = null;
 
 // Redireciona se não autenticado
 if (!token) window.location.href = '/login';
@@ -335,6 +359,7 @@ async function newConversation() {
       <div class="msg-time">agora</div>
     </div>`;
   document.getElementById('rightPanel').style.display = 'none';
+  document.getElementById('approveSection').style.display = 'none';
   document.getElementById('downloadBtn').style.display = 'none';
   showPanel('conversations');
   loadConversations();
@@ -359,6 +384,10 @@ async function selectConversation(id) {
   } catch (e) { console.error(e); }
 }
 
+function artifactDownloadUrl(dealId, artifactId) {
+  return `${API}/deals/${dealId}/artifacts/${artifactId}/download?token=${encodeURIComponent(token)}`;
+}
+
 async function loadDealPanel(dealId, nome) {
   try {
     const res = await apiFetch(`${API}/deals/${dealId}`);
@@ -366,12 +395,174 @@ async function loadDealPanel(dealId, nome) {
     const deal = await res.json();
     const artifact = (deal.artifacts || []).find(a => a.file_path) || (deal.artifacts || [])[0];
     if (artifact && artifact.file_path) {
-      document.getElementById('downloadBtn').style.display = 'inline-block';
-      document.getElementById('downloadBtn').onclick = () => window.open(`${API}/jobs/${artifact.id}/download`, '_blank');
-      document.getElementById('rightPanel').style.display = 'flex';
-      document.getElementById('docName').textContent = artifact.file_path.split('/').pop();
+      await showArtifactPanel(dealId, artifact.id, nome, {
+        source_file: artifact.file_path.split('/').pop(),
+        tipo: artifact.artifact_type,
+        criado_em: artifact.created_at,
+      });
     }
   } catch (e) { console.error(e); }
+}
+
+function auditStatusClass(status) {
+  const s = (status || '').toUpperCase();
+  if (s === 'CITED') return 'audit-cited';
+  if (s === 'DIVERGENT') return 'audit-divergent';
+  return 'audit-uncited';
+}
+
+function formatDelta(pct) {
+  if (pct == null || pct === undefined) return '—';
+  return `${Number(pct).toFixed(1)}%`;
+}
+
+function renderFieldAudits(fieldAudits) {
+  const entries = Object.entries(fieldAudits || {});
+  if (!entries.length) {
+    return '<div class="doc-p">Nenhum campo auditado (modo legado ou sem data room).</div>';
+  }
+  const rows = entries.map(([field, audit]) => {
+    const candidates = (audit.source_candidates || []).slice(0, 3).map(c =>
+      `<div class="candidate">${escHtml(c.source_file || '?')} p.${c.page ?? '—'} · Δ ${formatDelta(c.best_delta_pct)}<br><em>${escHtml((c.quote || '').slice(0, 120))}</em></div>`
+    ).join('');
+    const cit = audit.citation;
+    const citLine = cit
+      ? `<div class="candidate"><strong>Fonte:</strong> ${escHtml(cit.source_file || '')} p.${cit.page ?? '—'}<br><em>${escHtml((cit.quote || '').slice(0, 140))}</em></div>`
+      : '';
+    return `<tr>
+      <td><strong>${escHtml(field)}</strong><br><span style="color:#666">${escHtml(audit.value || '')}</span></td>
+      <td><span class="audit-badge ${auditStatusClass(audit.status)}">${escHtml(audit.status || '—')}</span></td>
+      <td>${formatDelta(audit.match_delta_pct)}</td>
+      <td>${citLine}${candidates}</td>
+    </tr>`;
+  }).join('');
+  return `<table class="doc-table">
+    <thead><tr><th>Campo</th><th>Status</th><th>Δ match</th><th>Fontes</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function renderQaSection(review) {
+  const issues = review.qa_issues || [];
+  const blocking = review.blocking_issues || [];
+  if (review.qa_passed && !blocking.length) {
+    return '<div class="qa-ok">✓ QA factual aprovado — todos os campos citados dentro da tolerância.</div>';
+  }
+  let html = '';
+  if (blocking.length) {
+    html += blocking.map(i => `<div class="qa-issue">⚠ ${escHtml(i)}</div>`).join('');
+  }
+  issues.filter(i => !blocking.includes(i)).forEach(i => {
+    html += `<div class="qa-issue" style="border-color:#EA580C;background:#FFF7ED;color:#9A3412">ℹ ${escHtml(i)}</div>`;
+  });
+  return html || '<div class="qa-issue">Issues de QA pendentes.</div>';
+}
+
+function updateApproveUi(review) {
+  const section = document.getElementById('approveSection');
+  const overrideBox = document.getElementById('overrideBox');
+  const approveBtn = document.getElementById('approveBtn');
+  const badge = document.getElementById('approvedBadge');
+  const art = review.artifact;
+
+  section.style.display = 'block';
+  const hasBlocking = (review.blocking_issues || []).length > 0;
+
+  if (art.approved || review.active_approval) {
+    approveBtn.style.display = 'none';
+    overrideBox.style.display = 'none';
+    badge.style.display = 'inline';
+    const ov = review.active_approval?.override ? ' (com override)' : '';
+    badge.textContent = `✓ Aprovado v${art.version}${ov}`;
+    return;
+  }
+
+  approveBtn.style.display = 'inline-block';
+  badge.style.display = 'none';
+  overrideBox.style.display = hasBlocking ? 'block' : 'none';
+  if (!hasBlocking) document.getElementById('overrideReason').value = '';
+}
+
+async function showArtifactPanel(dealId, artifactId, nome, docMeta = {}) {
+  currentDealId = dealId;
+  const right = document.getElementById('rightPanel');
+  right.style.display = 'flex';
+  right.style.flexDirection = 'column';
+
+  const downloadUrl = artifactDownloadUrl(dealId, artifactId);
+  document.getElementById('docDownloadLink').href = downloadUrl;
+  document.getElementById('downloadBtn').style.display = 'inline-block';
+  document.getElementById('downloadBtn').onclick = () => window.open(downloadUrl, '_blank');
+
+  try {
+    const res = await apiFetch(`${API}/deals/${dealId}/artifacts/${artifactId}`);
+    if (!res.ok) throw new Error('Não foi possível carregar revisão');
+    const review = await res.json();
+    currentArtifactReview = review;
+    const art = review.artifact;
+    const filename = (art.file_path || docMeta.source_file || `${nome}.pptx`).split('/').pop();
+
+    document.getElementById('docName').textContent = filename;
+    document.getElementById('docSub').textContent =
+      `${art.artifact_type} · v${art.version} · ${art.status}${review.audit_mode === 'legacy' ? ' · legado' : ''}`;
+
+    document.getElementById('docBody').innerHTML = `
+      <div class="doc-h1">Resumo</div>
+      <div class="doc-p"><strong>${escHtml(nome)}</strong> · Gerado em ${formatDate(art.created_at || docMeta.criado_em)}</div>
+      <div class="doc-h1">QA factual</div>
+      ${renderQaSection(review)}
+      <div class="doc-h1">Citações por campo</div>
+      ${renderFieldAudits(review.field_audits)}
+    `;
+    updateApproveUi(review);
+  } catch (e) {
+    console.error(e);
+    document.getElementById('docBody').innerHTML = `<div class="doc-p">Erro ao carregar revisão: ${escHtml(e.message)}</div>`;
+    document.getElementById('approveSection').style.display = 'none';
+  }
+}
+
+async function approveArtifact() {
+  if (!currentArtifactReview) return;
+  const dealId = currentDealId;
+  const artifactId = currentArtifactReview.artifact.id;
+  const blocking = currentArtifactReview.blocking_issues || [];
+  const body = {};
+  if (blocking.length) {
+    const reason = document.getElementById('overrideReason').value.trim();
+    if (!reason) {
+      alert('Informe a justificativa para aprovar com issues bloqueantes.');
+      document.getElementById('overrideReason').focus();
+      return;
+    }
+    body.override_reason = reason;
+  }
+
+  const approveBtn = document.getElementById('approveBtn');
+  approveBtn.disabled = true;
+  try {
+    const res = await apiFetch(`${API}/deals/${dealId}/artifacts/${artifactId}/approve`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = data.detail?.message || data.detail || 'Falha na aprovação';
+      throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+    }
+    currentArtifactReview = {
+      ...currentArtifactReview,
+      artifact: data.artifact,
+      active_approval: data.approval,
+      blocking_issues: [],
+    };
+    updateApproveUi(currentArtifactReview);
+    addMessage('✅ Documento <strong>aprovado</strong> pelo revisor.', 'eva');
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    approveBtn.disabled = false;
+  }
 }
 
 async function ensureConversation() {
@@ -406,7 +597,9 @@ function renderDealList(deals) {
       <div class="deal-meta">
         <span class="deal-time">${formatDate(d.criado_em)}</span>
         <span class="tag ${typeTag[d.document_type]||'tag-dd'}">${typeLabel[d.document_type]||d.document_type}</span>
-        ${d.documentos&&d.documentos.length?'<span class="tag tag-ok">Pronto</span>':'<span class="tag tag-proc">Processando</span>'}
+        ${(d.document_count > 0 || d.has_ready_artifact || (d.documentos&&d.documentos.length))
+          ? '<span class="tag tag-ok">Pronto</span>'
+          : '<span class="tag tag-proc">Rascunho</span>'}
       </div>
     </div>
   `).join('');
@@ -424,6 +617,7 @@ function formatDate(iso) {
 async function selectDeal(dealId, nome, type) {
   document.querySelectorAll('.deal-item').forEach(el => el.classList.remove('active'));
   event.currentTarget.classList.add('active');
+  currentDealId = dealId;
 
   const typeLabel = { CIM:'CIM', VALUATION:'Valuation', DUE_DILIGENCE:'Due Diligence' };
   const typeTag   = { CIM:'tag-cim', VALUATION:'tag-val', DUE_DILIGENCE:'tag-dd' };
@@ -438,28 +632,22 @@ async function selectDeal(dealId, nome, type) {
     if (!res.ok) return;
     const data = await res.json();
     if (data.documentos && data.documentos.length) {
-      showDocument(data.documentos[0], dealId, nome);
-      addMessage(`✅ Documento <strong>${nome}</strong> disponível para download.`, 'eva');
+      const doc = data.documentos.find(d => d.artifact_id) || data.documentos[0];
+      if (doc.artifact_id) {
+        showDocument(doc, dealId, nome);
+        addMessage(`✅ Documento <strong>${nome}</strong> disponível para download.`, 'eva');
+      } else {
+        addMessage(`📁 Data room: <strong>${doc.source_file || doc.nome}</strong> indexado (${doc.status}).`, 'eva');
+      }
     } else {
-      addMessage('Este deal ainda está sendo processado.', 'eva');
+      addMessage('Nenhum documento neste deal ainda. Anexe um PDF no chat (📎).', 'eva');
     }
   } catch(e) { console.error(e); }
 }
 
 function showDocument(doc, dealId, nome) {
-  const right = document.getElementById('rightPanel');
-  right.style.display = 'flex';
-  right.style.flexDirection = 'column';
-  document.getElementById('docName').textContent = `${nome}.pptx`;
-  document.getElementById('docDownloadLink').href = `${API}/deal/${dealId}/download/${doc.id}?token=${token}`;
-  document.getElementById('downloadBtn').style.display = 'inline-block';
-  document.getElementById('docBody').innerHTML = `
-    <div class="doc-h1">Documento gerado por EVA</div>
-    <div class="doc-p"><strong>${nome}</strong> foi gerado com sucesso e está armazenado com segurança.</div>
-    <div class="doc-p">Tipo: <strong>${doc.tipo}</strong><br>Gerado em: <strong>${formatDate(doc.criado_em)}</strong></div>
-    <div class="doc-h1">Download</div>
-    <div class="doc-p">Clique em <strong>Download</strong> no topo para baixar o arquivo .pptx completo. O link expira em 1 hora.</div>
-  `;
+  const artifactId = doc.artifact_id || doc.id;
+  showArtifactPanel(dealId, artifactId, nome, doc);
 }
 
 function showChatArea() {
@@ -476,6 +664,7 @@ function showNewDeal() {
   document.getElementById('chatTitle').textContent = 'Novo documento';
   document.getElementById('chatTags').innerHTML = '';
   document.getElementById('rightPanel').style.display = 'none';
+  document.getElementById('approveSection').style.display = 'none';
   document.getElementById('messages').innerHTML = `
     <div class="msg msg-eva">
       <div class="bubble">Olá! Sou a EVA. Me diga qual documento quer gerar.<br><br>

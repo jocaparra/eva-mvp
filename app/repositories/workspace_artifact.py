@@ -37,10 +37,18 @@ def compute_file_hash(file_path: Optional[str]) -> str:
     """SHA-256 dos bytes do artefato entregue (PPT/DOCX) — prova de aprovação."""
     if not file_path:
         return ""
+    try:
+        from app.storage.artifact_storage import get_artifact_storage
+
+        storage = get_artifact_storage()
+        if storage.exists(file_path):
+            return hashlib.sha256(storage.get_bytes(file_path)).hexdigest()
+    except Exception:
+        pass
     path = Path(file_path)
-    if not path.is_file():
-        return ""
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    if path.is_file():
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    return ""
 
 
 def compute_version_fingerprint(file_path: Optional[str], field_audits: dict) -> str:

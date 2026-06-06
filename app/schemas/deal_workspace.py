@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -99,8 +99,27 @@ class DealWorkspaceResponse(BaseModel):
     company_name: str
     owner_phone: str
     status: str
-    documents: list[WorkspaceDocumentResponse] = Field(default_factory=list)
+    documents: List[WorkspaceDocumentResponse] = Field(default_factory=list)
     retrieved_context: list[CitationSchema] = Field(default_factory=list)
     artifacts: list[WorkspaceArtifactResponse] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+
+
+class DealListItemResponse(BaseModel):
+    """Item da lista de deals — inclui aliases legados para o frontend."""
+
+    id: UUID
+    deal_id: UUID
+    company_name: str
+    nome: str
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    criado_em: datetime
+    document_count: int = 0
+    artifact_count: int = 0
+    has_ready_artifact: bool = False
+    document_type: str = "CIM"
+    documentos: list[WorkspaceDocumentResponse] = Field(default_factory=list)
+    artifacts: list[WorkspaceArtifactResponse] = Field(default_factory=list)
