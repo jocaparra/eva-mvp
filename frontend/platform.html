@@ -7,282 +7,427 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: 'Inter', sans-serif; background: #fff; display: flex; height: 100vh; overflow: hidden; color: #111; }
+body { font-family: 'Inter', sans-serif; background: #f7f7f8; display: flex; height: 100vh; overflow: hidden; color: #111; }
 
-/* SIDEBAR */
-.sidebar { width: 52px; background: #111; display: flex; flex-direction: column; align-items: center; padding: 14px 0; gap: 4px; flex-shrink: 0; }
-.s-logo { width: 30px; height: 30px; background: white; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; color: #111; margin-bottom: 12px; }
-.s-icon { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #555; font-size: 16px; transition: all 0.15s; }
-.s-icon:hover, .s-icon.active { background: #222; color: #fff; }
-.s-spacer { flex: 1; }
-.s-avatar { width: 30px; height: 30px; border-radius: 50%; background: #4A6CF7; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: white; cursor: pointer; }
+/* ── Icon rail ── */
+.icon-rail {
+  width: 48px; background: #111; display: flex; flex-direction: column;
+  align-items: center; padding: 12px 0; gap: 2px; flex-shrink: 0; z-index: 20;
+}
+.rail-logo {
+  width: 28px; height: 28px; background: #fff; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 800; color: #111; margin-bottom: 14px;
+}
+.rail-btn {
+  width: 32px; height: 32px; border-radius: 8px; border: none; background: transparent;
+  color: #666; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  font-size: 15px; transition: all .15s;
+}
+.rail-btn:hover { background: #222; color: #fff; }
+.rail-btn.active { background: #222; color: #fff; }
+.rail-spacer { flex: 1; }
+.rail-avatar {
+  width: 28px; height: 28px; border-radius: 50%; background: #4f46e5;
+  color: #fff; font-size: 9px; font-weight: 700; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; margin-top: 8px;
+}
 
-/* LEFT PANEL */
-.left { width: 300px; border-right: 1px solid #f0f0f0; display: flex; flex-direction: column; flex-shrink: 0; }
-.left-header { padding: 16px; border-bottom: 1px solid #f0f0f0; display: flex; align-items: center; justify-content: space-between; }
-.left-header h2 { font-size: 14px; font-weight: 600; }
-.new-btn { padding: 5px 10px; background: #111; color: white; border: none; border-radius: 6px; font-size: 12px; font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 4px; }
-.new-btn:hover { opacity: 0.8; }
-.deal-list { flex: 1; overflow-y: auto; }
-.deal-item { padding: 12px 16px; cursor: pointer; border-left: 3px solid transparent; transition: background 0.1s; }
-.deal-item:hover { background: #fafafa; }
-.deal-item.active { background: #f5f7ff; border-left-color: #4A6CF7; }
-.deal-title { font-size: 13px; font-weight: 500; margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.deal-meta { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
-.deal-time { font-size: 11px; color: #aaa; }
-.tag { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 10px; }
-.tag-cim { background: #EEF2FF; color: #4A6CF7; }
-.tag-val { background: #FFF7ED; color: #EA580C; }
-.tag-dd { background: #F5F5F5; color: #666; }
-.tag-ok { background: #F0FDF4; color: #16A34A; }
-.tag-proc { background: #FFF7ED; color: #EA580C; }
-.empty-state { padding: 40px 20px; text-align: center; color: #bbb; font-size: 13px; }
+/* ── Nav drawer (conversas / deals / etc) ── */
+.nav-drawer {
+  width: 280px; background: #fff; border-right: 1px solid #e8e8e8;
+  display: flex; flex-direction: column; flex-shrink: 0; transition: margin .2s;
+}
+.nav-drawer.hidden { margin-left: -280px; width: 0; overflow: hidden; border: none; }
+.drawer-header {
+  padding: 14px 16px; border-bottom: 1px solid #f0f0f0;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.drawer-header h2 { font-size: 13px; font-weight: 600; }
+.drawer-new {
+  padding: 5px 10px; background: #111; color: #fff; border: none; border-radius: 6px;
+  font-size: 11px; font-weight: 500; cursor: pointer; font-family: inherit;
+}
+.drawer-new:hover { opacity: .85; }
+.drawer-list { flex: 1; overflow-y: auto; }
+.drawer-item {
+  padding: 11px 16px; cursor: pointer; border-left: 3px solid transparent;
+  transition: background .1s;
+}
+.drawer-item:hover { background: #fafafa; }
+.drawer-item.active { background: #f5f3ff; border-left-color: #7c3aed; }
+.drawer-item-title { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.drawer-item-meta { font-size: 11px; color: #aaa; margin-top: 3px; }
+.drawer-empty { padding: 32px 16px; text-align: center; color: #bbb; font-size: 12px; line-height: 1.5; }
+.drawer-panel { display: none; flex-direction: column; flex: 1; min-height: 0; }
+.drawer-panel.active { display: flex; }
+.drawer-body { padding: 14px 16px; flex: 1; overflow-y: auto; }
 
-/* MAIN AREA */
-.main { flex: 1; display: flex; flex-direction: column; border-right: 1px solid #f0f0f0; min-width: 0; }
-.main-header { padding: 14px 20px; border-bottom: 1px solid #f0f0f0; display: flex; align-items: center; justify-content: space-between; }
-.main-header-left h3 { font-size: 14px; font-weight: 600; }
-.main-header-left .tags { display: flex; gap: 6px; margin-top: 4px; }
-.main-header-right { display: flex; gap: 8px; }
-.btn-sm { padding: 6px 12px; border-radius: 6px; border: 1px solid #e8e8e8; background: white; font-size: 12px; font-weight: 500; cursor: pointer; color: #333; }
-.btn-sm:hover { background: #f5f5f5; }
-.btn-dark { background: #111; color: white; border-color: #111; }
-.btn-dark:hover { opacity: 0.8; background: #111; }
+/* ── Workspace split ── */
+.workspace { flex: 1; display: flex; min-width: 0; }
+.process-pane {
+  flex: 1; display: flex; flex-direction: column; min-width: 0;
+  background: #fff; border-right: 1px solid #e8e8e8;
+}
+.doc-pane {
+  width: 46%; min-width: 380px; max-width: 720px;
+  display: flex; flex-direction: column; background: #e8e8ea; flex-shrink: 0;
+}
 
-/* INPUT AREA */
-.input-area { padding: 16px 20px; border-top: 1px solid #f0f0f0; }
-.input-wrap { display: flex; align-items: center; gap: 10px; background: #f8f8f8; border: 1px solid #e8e8e8; border-radius: 10px; padding: 10px 14px; }
-.input-wrap input { flex: 1; border: none; background: transparent; font-family: inherit; font-size: 13px; color: #111; outline: none; }
-.input-wrap input::placeholder { color: #bbb; }
-.model-tag { font-size: 10px; color: #aaa; background: #f0f0f0; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
-.send-btn { width: 30px; height: 30px; background: #111; border: none; border-radius: 7px; color: white; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; }
-.send-btn:hover { opacity: 0.8; }
-.privacy-note { font-size: 11px; color: #ccc; text-align: center; margin-top: 8px; }
+/* ── Process header ── */
+.process-header {
+  padding: 16px 24px 12px; border-bottom: 1px solid #f0f0f0;
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+}
+.process-header h1 { font-size: 15px; font-weight: 600; line-height: 1.3; }
+.process-tags { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.process-menu { color: #bbb; cursor: pointer; font-size: 18px; padding: 4px; border: none; background: none; }
 
-/* MESSAGES */
-.messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 14px; }
-.msg { display: flex; flex-direction: column; gap: 3px; }
-.msg-user { align-items: flex-end; }
-.msg-eva { align-items: flex-start; }
-.bubble { max-width: 85%; padding: 10px 14px; border-radius: 12px; font-size: 13px; line-height: 1.55; }
-.msg-user .bubble { background: #111; color: white; border-radius: 12px 12px 2px 12px; }
-.msg-eva .bubble { background: #f5f5f5; color: #111; border-radius: 12px 12px 12px 2px; }
-.msg-time { font-size: 10px; color: #ccc; padding: 0 4px; }
+/* ── Tags ── */
+.tag { font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 6px; display: inline-block; }
+.tag-purple { background: #ede9fe; color: #6d28d9; }
+.tag-amber { background: #fef3c7; color: #b45309; }
+.tag-cim { background: #ede9fe; color: #6d28d9; }
+.tag-val { background: #fef3c7; color: #b45309; }
+.tag-dd { background: #f3f4f6; color: #4b5563; }
+.tag-ok { background: #dcfce7; color: #15803d; }
+.tag-proc { background: #ffedd5; color: #c2410c; }
 
-/* TASKS */
-.tasks-card { background: white; border: 1px solid #e8e8e8; border-radius: 10px; padding: 12px 14px; max-width: 85%; }
-.tasks-label { font-size: 10px; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
-.task-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; color: #333; }
-.task-dot { width: 16px; height: 16px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 9px; flex-shrink: 0; }
-.t-done { background: #16A34A; color: white; }
-.t-run { background: #4A6CF7; color: white; animation: pulse 1s infinite; }
-.t-wait { background: #e8e8e8; color: #aaa; }
-@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
-.task-tokens { margin-left: auto; font-size: 10px; color: #ccc; }
+/* ── Feed (messages + thoughts + tasks) ── */
+.process-feed {
+  flex: 1; overflow-y: auto; padding: 16px 24px 24px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.feed-empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; color: #bbb; gap: 8px; padding: 40px;
+}
+.feed-empty .icon { font-size: 32px; opacity: .5; }
+.feed-empty p { font-size: 13px; text-align: center; line-height: 1.5; }
 
-/* RIGHT PANEL */
-.right { width: 420px; display: flex; flex-direction: column; flex-shrink: 0; }
-.right-header { padding: 12px 18px; border-bottom: 1px solid #f0f0f0; display: flex; align-items: center; justify-content: space-between; }
-.doc-info { display: flex; align-items: center; gap: 10px; }
-.doc-icon { width: 28px; height: 28px; background: #EEF2FF; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 13px; }
-.doc-name { font-size: 13px; font-weight: 600; }
-.doc-sub { font-size: 11px; color: #aaa; }
-.right-actions { display: flex; gap: 6px; }
-.doc-body { flex: 1; overflow-y: auto; padding: 24px 28px; }
-.doc-h1 { font-size: 15px; font-weight: 700; margin-bottom: 8px; margin-top: 20px; }
+/* User prompt bubble (right-aligned chip style) */
+.user-prompt {
+  align-self: flex-end; max-width: 85%;
+  background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 10px;
+  padding: 10px 14px; font-size: 13px; line-height: 1.5;
+}
+.user-prompt .prompt-tags { display: flex; gap: 6px; margin-bottom: 6px; }
+
+/* Thought + status */
+.thought-row {
+  display: flex; align-items: center; gap: 6px; font-size: 12px; color: #9ca3af;
+  cursor: pointer; user-select: none;
+}
+.thought-row .chev { font-size: 10px; transition: transform .15s; }
+.thought-row.open .chev { transform: rotate(90deg); }
+.status-line {
+  font-size: 12px; color: #6b7280; display: flex; align-items: center; gap: 6px;
+  padding-left: 18px;
+}
+.status-line .dot { width: 6px; height: 6px; border-radius: 50%; background: #d1d5db; flex-shrink: 0; }
+.status-line.done .dot { background: #22c55e; }
+
+/* Agent text */
+.agent-text { font-size: 13px; line-height: 1.65; color: #374151; max-width: 92%; }
+
+/* Task accordion */
+.task-section { border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; background: #fff; }
+.task-section-header {
+  padding: 10px 14px; display: flex; align-items: center; gap: 10px;
+  font-size: 13px; font-weight: 500; cursor: pointer; background: #fafafa;
+  border-bottom: 1px solid #f0f0f0;
+}
+.task-section-header .chev { color: #9ca3af; font-size: 11px; }
+.task-section-body { padding: 0; }
+.task-item {
+  display: flex; align-items: center; gap: 10px; padding: 11px 14px;
+  border-bottom: 1px solid #f3f4f6; font-size: 12px;
+}
+.task-item:last-child { border-bottom: none; }
+.task-icon {
+  width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; font-size: 9px;
+}
+.task-icon.wait { border: 1.5px solid #d1d5db; color: #9ca3af; }
+.task-icon.run { background: #7c3aed; color: #fff; animation: pulse 1.2s infinite; }
+.task-icon.done { background: #22c55e; color: #fff; }
+.task-info { flex: 1; min-width: 0; }
+.task-name { font-weight: 500; color: #111; }
+.task-meta { font-size: 10px; color: #9ca3af; margin-top: 2px; }
+.task-logs { font-size: 10px; color: #9ca3af; cursor: pointer; white-space: nowrap; }
+.task-logs:hover { color: #6b7280; }
+.task-footer {
+  padding: 10px 14px; display: flex; align-items: center; justify-content: space-between;
+  background: #fafafa; font-size: 12px; color: #6b7280;
+}
+.task-footer.done { color: #15803d; font-weight: 500; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.55} }
+
+/* ── Composer ── */
+.composer-wrap { padding: 12px 20px 16px; border-top: 1px solid #f0f0f0; background: #fff; }
+.composer {
+  border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px 14px;
+  background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.04);
+}
+.composer-chips { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+.composer-input {
+  width: 100%; border: none; outline: none; font-family: inherit;
+  font-size: 13px; resize: none; min-height: 22px; color: #111;
+}
+.composer-input::placeholder { color: #c4c4c4; }
+.composer-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 10px; padding-top: 8px; border-top: 1px solid #f3f4f6;
+}
+.composer-actions { display: flex; align-items: center; gap: 4px; }
+.composer-btn {
+  width: 28px; height: 28px; border: none; background: transparent;
+  border-radius: 6px; cursor: pointer; color: #9ca3af; font-size: 16px;
+  display: flex; align-items: center; justify-content: center;
+}
+.composer-btn:hover { background: #f3f4f6; color: #374151; }
+.composer-model {
+  display: flex; align-items: center; gap: 6px; font-size: 11px; color: #6b7280;
+  padding: 4px 8px; border-radius: 6px; cursor: default;
+}
+.composer-model .model-dot {
+  width: 14px; height: 14px; border-radius: 50%; background: #d97706;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 7px; color: #fff; font-weight: 700;
+}
+.composer-send {
+  width: 28px; height: 28px; border: none; background: #111; color: #fff;
+  border-radius: 7px; cursor: pointer; font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+}
+.composer-send:hover { opacity: .85; }
+.composer-disclaimer { font-size: 10px; color: #d1d5db; text-align: center; margin-top: 8px; }
+
+/* ── Document pane ── */
+.doc-tabbar {
+  padding: 10px 16px; background: #fff; border-bottom: 1px solid #e0e0e0;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.doc-tab {
+  display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 500;
+  background: #f3f4f6; padding: 6px 12px; border-radius: 8px; max-width: 55%;
+}
+.doc-tab-icon { font-size: 14px; }
+.doc-tab-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.doc-actions { display: flex; gap: 6px; }
+.doc-btn {
+  padding: 5px 10px; border: 1px solid #e5e7eb; border-radius: 7px;
+  background: #fff; font-size: 11px; font-weight: 500; cursor: pointer;
+  font-family: inherit; color: #374151; text-decoration: none;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.doc-btn:hover { background: #f9fafb; }
+.doc-btn-primary { background: #111; color: #fff; border-color: #111; }
+.doc-btn-primary:hover { opacity: .9; background: #111; }
+
+.doc-canvas {
+  flex: 1; overflow-y: auto; padding: 24px 20px 80px;
+  display: flex; justify-content: center;
+}
+.doc-page {
+  width: 100%; max-width: 560px; background: #fff; min-height: 640px;
+  box-shadow: 0 2px 12px rgba(0,0,0,.12); border-radius: 2px;
+  padding: 48px 52px; font-size: 12px; line-height: 1.7; color: #1f2937;
+}
+.doc-page-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: 400px; color: #9ca3af; text-align: center; gap: 8px;
+}
+.doc-page-empty .icon { font-size: 40px; opacity: .4; }
+.doc-h1 { font-size: 14px; font-weight: 700; margin: 24px 0 8px; color: #111; }
 .doc-h1:first-child { margin-top: 0; }
-.doc-p { font-size: 12px; color: #444; line-height: 1.7; margin-bottom: 10px; }
-.doc-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 11px; }
-.doc-table th { background: #f5f5f5; padding: 7px 10px; text-align: left; font-weight: 600; color: #333; border: 1px solid #e8e8e8; }
-.doc-table td { padding: 6px 10px; border: 1px solid #e8e8e8; color: #444; }
-.audit-cited { background: #F0FDF4; color: #16A34A; }
-.audit-divergent { background: #FEF2F2; color: #DC2626; }
-.audit-uncited { background: #FFF7ED; color: #EA580C; }
-.audit-badge { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; }
-.qa-issue { background: #FEF2F2; border-left: 3px solid #DC2626; padding: 8px 10px; margin: 6px 0; font-size: 11px; color: #991B1B; border-radius: 0 6px 6px 0; }
-.qa-ok { background: #F0FDF4; border-left: 3px solid #16A34A; padding: 8px 10px; font-size: 11px; color: #166534; border-radius: 0 6px 6px 0; }
-.approve-section { padding: 12px 18px; border-top: 1px solid #f0f0f0; background: #fafafa; }
-.override-box { margin-bottom: 10px; }
-.override-box label { display: block; font-size: 11px; font-weight: 600; color: #666; margin-bottom: 4px; }
-.override-box textarea { width: 100%; min-height: 56px; padding: 8px; border: 1px solid #e8e8e8; border-radius: 6px; font-family: inherit; font-size: 12px; resize: vertical; }
-.approved-badge { font-size: 11px; font-weight: 600; color: #16A34A; }
-.candidate { font-size: 10px; color: #666; margin-top: 4px; padding-left: 8px; border-left: 2px solid #e8e8e8; }
-.right-footer { padding: 10px 18px; border-top: 1px solid #f0f0f0; display: flex; align-items: center; justify-content: space-between; }
-.right-footer span { font-size: 11px; color: #ccc; }
-.page-nav { display: flex; align-items: center; gap: 6px; }
-.page-btn { width: 26px; height: 26px; border: 1px solid #e8e8e8; border-radius: 5px; background: white; cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; }
-.page-btn.active { background: #111; color: white; border-color: #111; }
+.doc-p { margin-bottom: 10px; color: #374151; }
+.doc-table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 11px; }
+.doc-table th { background: #f9fafb; padding: 8px 10px; text-align: left; font-weight: 600; border: 1px solid #e5e7eb; }
+.doc-table td { padding: 7px 10px; border: 1px solid #e5e7eb; vertical-align: top; }
+.audit-cited { background: #dcfce7; color: #15803d; }
+.audit-divergent { background: #fee2e2; color: #dc2626; }
+.audit-uncited { background: #ffedd5; color: #c2410c; }
+.audit-badge { font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; }
+.qa-issue { background: #fef2f2; border-left: 3px solid #dc2626; padding: 8px 10px; margin: 8px 0; font-size: 11px; color: #991b1b; border-radius: 0 6px 6px 0; }
+.qa-ok { background: #f0fdf4; border-left: 3px solid #22c55e; padding: 8px 10px; font-size: 11px; color: #166534; border-radius: 0 6px 6px 0; margin: 8px 0; }
+.candidate { font-size: 10px; color: #6b7280; margin-top: 4px; padding-left: 8px; border-left: 2px solid #e5e7eb; }
 
-/* EMPTY STATE */
-.empty-main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #bbb; gap: 8px; }
-.empty-main .icon { font-size: 36px; margin-bottom: 4px; }
-.empty-main p { font-size: 13px; }
+.doc-approve {
+  padding: 12px 16px; background: #fff; border-top: 1px solid #e0e0e0;
+}
+.override-box { margin-bottom: 10px; }
+.override-box label { display: block; font-size: 11px; font-weight: 600; color: #6b7280; margin-bottom: 4px; }
+.override-box textarea {
+  width: 100%; min-height: 52px; padding: 8px; border: 1px solid #e5e7eb;
+  border-radius: 8px; font-family: inherit; font-size: 12px; resize: vertical;
+}
+.approved-badge { font-size: 11px; font-weight: 600; color: #15803d; }
+
+.doc-toolbar {
+  position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+  background: #1f2937; border-radius: 10px; padding: 6px 12px;
+  display: flex; align-items: center; gap: 8px; z-index: 5;
+}
+.doc-pane-inner { flex: 1; display: flex; flex-direction: column; position: relative; min-height: 0; }
+.doc-toolbar button {
+  width: 28px; height: 28px; border: none; background: transparent; color: #d1d5db;
+  border-radius: 6px; cursor: pointer; font-size: 12px;
+}
+.doc-toolbar button:hover { background: #374151; color: #fff; }
+.doc-toolbar .page-info { font-size: 11px; color: #d1d5db; padding: 0 6px; min-width: 48px; text-align: center; }
+
+.hidden { display: none !important; }
 </style>
 </head>
 <body>
 
-<!-- SIDEBAR -->
-<div class="sidebar">
-  <div class="s-logo">EV</div>
-  <div class="s-icon active" id="btn-conversations" title="Conversas" onclick="showPanel('conversations')">💬</div>
-  <div class="s-icon" id="btn-deals" title="Deals" onclick="showPanel('deals')">📄</div>
-  <div class="s-icon" id="btn-search" title="Buscar" onclick="showPanel('search')">🔍</div>
-  <div class="s-icon" id="btn-files" title="Arquivos" onclick="showPanel('files')" style="display:none">📁</div>
-  <div class="s-spacer"></div>
-  <div class="s-icon" id="btn-settings" title="Configurações" onclick="showPanel('settings')">⚙️</div>
-  <div class="s-avatar" id="avatar" title="Sair" onclick="logout()">JO</div>
-</div>
+<!-- Icon rail -->
+<nav class="icon-rail">
+  <div class="rail-logo">EV</div>
+  <button class="rail-btn active" id="btn-conversations" title="Conversas" onclick="showPanel('conversations')">💬</button>
+  <button class="rail-btn" id="btn-deals" title="Deals" onclick="showPanel('deals')">📄</button>
+  <button class="rail-btn" id="btn-search" title="Buscar" onclick="showPanel('search')">🔍</button>
+  <button class="rail-btn" id="btn-files" title="Arquivos" onclick="showPanel('files')" style="display:none">📁</button>
+  <div class="rail-spacer"></div>
+  <button class="rail-btn" id="btn-settings" title="Configurações" onclick="showPanel('settings')">⚙️</button>
+  <div class="rail-avatar" id="avatar" title="Sair" onclick="logout()">EV</div>
+</nav>
 
-<!-- PAINEL CONVERSAS -->
-<div class="left" id="panel-conversations">
-  <div class="left-header">
-    <h2>Conversas</h2>
-    <button class="new-btn" onclick="newConversation()">+ Novo chat</button>
-  </div>
-  <div class="deal-list" id="conversationList">
-    <div class="empty-state">Nenhuma conversa ainda.<br>Clique em + Novo chat.</div>
-  </div>
-</div>
-
-<!-- PAINEL DEALS -->
-<div class="left" id="panel-deals" style="display:none">
-  <div class="left-header">
-    <h2>Deals</h2>
-    <button class="new-btn" onclick="showNewDeal()">+ Novo</button>
-  </div>
-  <div class="deal-list" id="dealList">
-    <div class="empty-state">Nenhum deal ainda.<br>Clique em + Novo para começar.</div>
-  </div>
-</div>
-
-<!-- PAINEL BUSCAR -->
-<div class="left" id="panel-search" style="display:none">
-  <div class="left-header">
-    <h2>Buscar</h2>
-  </div>
-  <div style="padding:16px">
-    <input type="text" id="searchInput" placeholder="Buscar deals ou arquivos..." 
-      style="width:100%;padding:9px 12px;border:1.5px solid #e8e8e8;border-radius:8px;font-family:inherit;font-size:13px;outline:none"
-      oninput="searchDeals(this.value)">
-    <div id="searchResults" style="margin-top:12px"></div>
-  </div>
-</div>
-
-<!-- PAINEL ARQUIVOS -->
-<div class="left" id="panel-files" style="display:none">
-  <div class="left-header">
-    <h2>Arquivos</h2>
-  </div>
-  <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
-    <div id="dropZone" 
-      style="border:2px dashed #e8e8e8;border-radius:10px;padding:28px 16px;text-align:center;cursor:pointer;transition:border-color 0.15s"
-      onclick="document.getElementById('fileInput').click()"
-      ondragover="event.preventDefault();this.style.borderColor='#111'"
-      ondragleave="this.style.borderColor='#e8e8e8'"
-      ondrop="handleDrop(event)">
-      <div style="font-size:28px;margin-bottom:8px">📎</div>
-      <div style="font-size:13px;font-weight:600;color:#111;margin-bottom:4px">Soltar arquivo aqui</div>
-      <div style="font-size:11px;color:#aaa">ou clique para selecionar</div>
-      <input type="file" id="fileInput" style="display:none" onchange="uploadFile(this.files[0])">
+<!-- Nav drawer -->
+<aside class="nav-drawer" id="navDrawer">
+  <div class="drawer-panel active" id="panel-conversations">
+    <div class="drawer-header">
+      <h2>Conversas</h2>
+      <button class="drawer-new" onclick="newConversation()">+ Novo</button>
     </div>
-    <div id="uploadMsg" style="font-size:12px;color:#666;text-align:center;display:none"></div>
-    <div id="fileList" style="display:flex;flex-direction:column;gap:8px"></div>
-  </div>
-</div>
-
-<!-- PAINEL CONFIGURAÇÕES -->
-<div class="left" id="panel-settings" style="display:none">
-  <div class="left-header">
-    <h2>Configurações</h2>
-  </div>
-  <div style="padding:16px;display:flex;flex-direction:column;gap:16px">
-    <div>
-      <div style="font-size:11px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Conta</div>
-      <div style="font-size:13px;color:#333;padding:10px 12px;background:#f8f8f8;border-radius:8px" id="settingsPhone">—</div>
+    <div class="drawer-list" id="conversationList">
+      <div class="drawer-empty">Nenhuma conversa.<br>Clique em + Novo.</div>
     </div>
-    <div>
-      <div style="font-size:11px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Plano</div>
-      <div style="font-size:13px;color:#333;padding:10px 12px;background:#f8f8f8;border-radius:8px">Solo — R$ 197/mês</div>
+  </div>
+  <div class="drawer-panel" id="panel-deals">
+    <div class="drawer-header">
+      <h2>Deals</h2>
+      <button class="drawer-new" onclick="showNewDeal()">+ Novo</button>
     </div>
-    <button onclick="logout()" 
-      style="padding:10px;border:1px solid #e8e8e8;border-radius:8px;background:white;font-family:inherit;font-size:13px;cursor:pointer;color:#e11d48;font-weight:500">
-      Sair da conta
-    </button>
+    <div class="drawer-list" id="dealList">
+      <div class="drawer-empty">Nenhum deal ainda.</div>
+    </div>
   </div>
-</div>
-
-<!-- MAIN AREA -->
-<div class="main" id="mainArea">
-  <div class="empty-main" id="emptyMain">
-    <div class="icon">💬</div>
-    <p>Selecione um deal ou peça um novo documento</p>
+  <div class="drawer-panel" id="panel-search">
+    <div class="drawer-header"><h2>Buscar</h2></div>
+    <div class="drawer-body">
+      <input type="text" id="searchInput" placeholder="Buscar deals..."
+        style="width:100%;padding:9px 12px;border:1px solid #e5e7eb;border-radius:8px;font-family:inherit;font-size:13px;outline:none"
+        oninput="searchDeals(this.value)">
+      <div id="searchResults" style="margin-top:12px"></div>
+    </div>
   </div>
-
-  <div id="chatArea" style="display:none; flex:1; display:none; flex-direction:column;">
-    <div class="main-header" id="chatHeader">
-      <div class="main-header-left">
-        <h3 id="chatTitle">—</h3>
-        <div class="tags" id="chatTags"></div>
+  <div class="drawer-panel" id="panel-files">
+    <div class="drawer-header"><h2>Arquivos</h2></div>
+    <div class="drawer-body">
+      <div id="dropZone" style="border:2px dashed #e5e7eb;border-radius:10px;padding:24px;text-align:center;cursor:pointer"
+        onclick="document.getElementById('fileInput').click()"
+        ondragover="event.preventDefault();this.style.borderColor='#7c3aed'"
+        ondragleave="this.style.borderColor='#e5e7eb'"
+        ondrop="handleDrop(event)">
+        <div style="font-size:24px;margin-bottom:6px">📎</div>
+        <div style="font-size:12px;font-weight:600">Soltar arquivo</div>
+        <input type="file" id="fileInput" style="display:none" onchange="uploadFile(this.files[0])">
       </div>
-      <div class="main-header-right">
-        <button class="btn-sm" id="downloadBtn" onclick="downloadDoc()" style="display:none">⬇ Baixar</button>
-      </div>
-    </div>
-
-    <div class="messages" id="messages"></div>
-
-    <div class="input-area">
-      <div class="input-wrap">
-        <button type="button" onclick="document.getElementById('chatFileInput').click()" title="Anexar documento ao data room"
-          style="border:none;background:transparent;cursor:pointer;font-size:18px;padding:0 4px">📎</button>
-        <input type="file" id="chatFileInput" style="display:none" accept=".pdf,.docx,.pptx,.xlsx" onchange="uploadChatDocument(this.files[0])">
-        <input type="text" id="msgInput" placeholder="Peça um CIM, Valuation ou Due Diligence...">
-        <span class="model-tag">EVA</span>
-        <button class="send-btn" onclick="sendMsg()">↑</button>
-      </div>
-      <div class="privacy-note">EVA nunca usa seus dados para treinar modelos.</div>
+      <div id="uploadMsg" style="font-size:11px;color:#666;text-align:center;margin-top:8px;display:none"></div>
+      <div id="fileList" style="margin-top:12px;display:flex;flex-direction:column;gap:6px"></div>
     </div>
   </div>
-</div>
+  <div class="drawer-panel" id="panel-settings">
+    <div class="drawer-header"><h2>Configurações</h2></div>
+    <div class="drawer-body">
+      <div style="font-size:10px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin-bottom:6px">Conta</div>
+      <div style="font-size:13px;padding:10px;background:#f9fafb;border-radius:8px;margin-bottom:16px" id="settingsPhone">—</div>
+      <button onclick="logout()" style="width:100%;padding:10px;border:1px solid #fecaca;border-radius:8px;background:#fff;color:#dc2626;font-family:inherit;font-size:12px;cursor:pointer;font-weight:500">Sair</button>
+    </div>
+  </div>
+</aside>
 
-<!-- RIGHT PANEL -->
-<div class="right" id="rightPanel" style="display:none">
-  <div class="right-header">
-    <div class="doc-info">
-      <div class="doc-icon">📄</div>
+<!-- Workspace -->
+<div class="workspace">
+  <!-- Process pane (chat + workflow) -->
+  <section class="process-pane">
+    <header class="process-header">
       <div>
-        <div class="doc-name" id="docName">—</div>
-        <div class="doc-sub" id="docSub">Documento pronto</div>
+        <h1 id="chatTitle">Novo documento</h1>
+        <div class="process-tags" id="chatTags"></div>
+      </div>
+      <button class="process-menu" title="Ocultar lista" onclick="toggleDrawer()">···</button>
+    </header>
+
+    <div class="process-feed" id="messages">
+      <div class="feed-empty" id="emptyMain">
+        <div class="icon">✦</div>
+        <p>Anexe um PDF ao data room e peça um CIM,<br>Valuation ou Due Diligence.</p>
       </div>
     </div>
-    <div class="right-actions">
-      <a class="btn-sm btn-dark" id="docDownloadLink" href="#" target="_blank">⬇ Download</a>
-    </div>
-  </div>
 
-  <div class="doc-body" id="docBody">
-    <div class="doc-h1">Documento carregando...</div>
-  </div>
+    <div class="composer-wrap">
+      <div class="composer">
+        <div class="composer-chips" id="composerChips"></div>
+        <textarea class="composer-input" id="msgInput" rows="1" placeholder="Quero gerar..."></textarea>
+        <div class="composer-toolbar">
+          <div class="composer-actions">
+            <button class="composer-btn" title="Anexar PDF" onclick="document.getElementById('chatFileInput').click()">📎</button>
+            <input type="file" id="chatFileInput" style="display:none" accept=".pdf,.docx,.pptx,.xlsx" onchange="uploadChatDocument(this.files[0])">
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div class="composer-model">
+              <span class="model-dot">C</span>
+              Claude Sonnet 4
+            </div>
+            <button class="composer-send" onclick="sendMsg()" title="Enviar">↑</button>
+          </div>
+        </div>
+      </div>
+      <div class="composer-disclaimer">EVA nunca usa seus dados para treinar modelos.</div>
+    </div>
+  </section>
 
-  <div class="approve-section" id="approveSection" style="display:none">
-    <div class="override-box" id="overrideBox" style="display:none">
-      <label for="overrideReason">Justificativa (obrigatória — há issues bloqueantes)</label>
-      <textarea id="overrideReason" placeholder="Ex.: número confirmado com o CFO em call..."></textarea>
-    </div>
-    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      <button class="btn-sm btn-dark" id="approveBtn" onclick="approveArtifact()">✓ Aprovar documento</button>
-      <span class="approved-badge" id="approvedBadge" style="display:none"></span>
-    </div>
-  </div>
+  <!-- Document pane -->
+  <section class="doc-pane" id="docPane">
+    <div class="doc-pane-inner">
+      <div class="doc-tabbar">
+        <div class="doc-tab">
+          <span class="doc-tab-icon">📄</span>
+          <span class="doc-tab-name" id="docName">documento.pptx</span>
+        </div>
+        <div class="doc-actions">
+          <a class="doc-btn" id="docDownloadLink" href="#" target="_blank">⬇ Download</a>
+          <button class="doc-btn doc-btn-primary" id="approveBtn" onclick="approveArtifact()" style="display:none">✓ Aprovar</button>
+        </div>
+      </div>
 
-  <div class="right-footer">
-    <span>EVA · oxai.online · Confidencial</span>
-    <div class="page-nav">
-      <button class="page-btn">‹</button>
-      <button class="page-btn active">1</button>
-      <button class="page-btn">›</button>
+      <div class="doc-canvas">
+        <div class="doc-page" id="docBody">
+          <div class="doc-page-empty" id="docEmpty">
+            <div class="icon">📄</div>
+            <p>O documento gerado<br>aparecerá aqui</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="doc-approve" id="approveSection" style="display:none">
+        <div class="override-box" id="overrideBox" style="display:none">
+          <label for="overrideReason">Justificativa (issues bloqueantes)</label>
+          <textarea id="overrideReason" placeholder="Ex.: confirmado com CFO em call..."></textarea>
+        </div>
+        <span class="approved-badge" id="approvedBadge" style="display:none"></span>
+      </div>
+
+      <div class="doc-toolbar" id="docToolbar" style="display:none">
+        <button title="Diminuir">−</button>
+        <span class="page-info" id="docPageInfo">1 / 1</span>
+        <button title="Aumentar">+</button>
+      </div>
     </div>
-  </div>
+  </section>
 </div>
 
 <script>
@@ -293,12 +438,11 @@ let pollTimer = null;
 let currentConversationId = null;
 let currentDealId = null;
 let currentArtifactReview = null;
+let currentCompanyTag = '';
+let currentDocType = 'CIM';
 
-// Redireciona se não autenticado
 if (!token) window.location.href = '/login';
-
-// Mostra iniciais no avatar
-if (phone) document.getElementById('avatar').textContent = phone.slice(-4);
+if (phone) document.getElementById('avatar').textContent = phone.slice(-2).toUpperCase();
 
 function logout() {
   localStorage.removeItem('eva_token');
@@ -309,17 +453,80 @@ function logout() {
 async function apiFetch(url, opts = {}) {
   const res = await fetch(url, {
     ...opts,
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-      ...(opts.headers || {})
-    }
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, ...(opts.headers || {}) }
   });
-  if (res.status === 401) {
-    localStorage.removeItem('eva_token');
-    window.location.href = '/login';
-  }
+  if (res.status === 401) { localStorage.removeItem('eva_token'); window.location.href = '/login'; }
   return res;
+}
+
+function toggleDrawer() {
+  document.getElementById('navDrawer').classList.toggle('hidden');
+}
+
+function updateComposerChips() {
+  const el = document.getElementById('composerChips');
+  const chips = [];
+  if (currentCompanyTag) chips.push(`<span class="tag tag-purple">${escHtml(currentCompanyTag)}</span>`);
+  if (currentDocType) chips.push(`<span class="tag tag-amber">${escHtml(currentDocType.toLowerCase())}</span>`);
+  el.innerHTML = chips.join('');
+}
+
+function setHeader(title, company, docType) {
+  document.getElementById('chatTitle').textContent = title;
+  currentCompanyTag = company || '';
+  currentDocType = docType || 'CIM';
+  const typeTag = { CIM: 'tag-cim', VALUATION: 'tag-val', DUE_DILIGENCE: 'tag-dd' };
+  const typeLabel = { CIM: 'CIM', VALUATION: 'Valuation', DUE_DILIGENCE: 'Due Diligence' };
+  document.getElementById('chatTags').innerHTML = `
+    ${company ? `<span class="tag tag-purple">${escHtml(company)}</span>` : ''}
+    <span class="tag ${typeTag[currentDocType] || 'tag-dd'}">${typeLabel[currentDocType] || currentDocType}</span>`;
+  updateComposerChips();
+}
+
+function hideEmptyFeed() {
+  const empty = document.getElementById('emptyMain');
+  if (empty) empty.remove();
+}
+
+function addStatusLine(text, done = false) {
+  hideEmptyFeed();
+  const feed = document.getElementById('messages');
+  const el = document.createElement('div');
+  el.className = `status-line${done ? ' done' : ''}`;
+  el.innerHTML = `<span class="dot"></span>${text}`;
+  feed.appendChild(el);
+  feed.scrollTop = feed.scrollHeight;
+}
+
+function addThoughtBlock(label = 'Pensando') {
+  hideEmptyFeed();
+  const feed = document.getElementById('messages');
+  const el = document.createElement('div');
+  el.className = 'thought-row open';
+  el.innerHTML = `<span class="chev">›</span> ${label}`;
+  feed.appendChild(el);
+  feed.scrollTop = feed.scrollHeight;
+  return el;
+}
+
+function addAgentText(html) {
+  hideEmptyFeed();
+  const feed = document.getElementById('messages');
+  const el = document.createElement('div');
+  el.className = 'agent-text';
+  el.innerHTML = html;
+  feed.appendChild(el);
+  feed.scrollTop = feed.scrollHeight;
+}
+
+function addUserPrompt(html, tagsHtml = '') {
+  hideEmptyFeed();
+  const feed = document.getElementById('messages');
+  const el = document.createElement('div');
+  el.className = 'user-prompt';
+  el.innerHTML = `${tagsHtml ? `<div class="prompt-tags">${tagsHtml}</div>` : ''}${html}`;
+  feed.appendChild(el);
+  feed.scrollTop = feed.scrollHeight;
 }
 
 async function loadConversations() {
@@ -333,13 +540,13 @@ async function loadConversations() {
 function renderConversationList(conversations) {
   const list = document.getElementById('conversationList');
   if (!conversations.length) {
-    list.innerHTML = '<div class="empty-state">Nenhuma conversa ainda.<br>Clique em + Novo chat.</div>';
+    list.innerHTML = '<div class="drawer-empty">Nenhuma conversa.<br>Clique em + Novo.</div>';
     return;
   }
   list.innerHTML = conversations.map(c => `
-    <div class="deal-item ${c.id === currentConversationId ? 'active' : ''}" onclick="selectConversation('${c.id}')">
-      <div class="deal-title">${escHtml(c.title)}</div>
-      <div class="deal-meta"><span class="deal-time">${formatDate(c.updated_at)}</span></div>
+    <div class="drawer-item ${c.id === currentConversationId ? 'active' : ''}" onclick="selectConversation('${c.id}')">
+      <div class="drawer-item-title">${escHtml(c.title)}</div>
+      <div class="drawer-item-meta">${formatDate(c.updated_at)}</div>
     </div>`).join('');
 }
 
@@ -349,18 +556,11 @@ async function newConversation() {
   const conv = await res.json();
   currentConversationId = conv.id;
   currentDealId = conv.deal_id || null;
-  showChatArea();
-  document.getElementById('chatTitle').textContent = conv.title;
-  document.getElementById('chatTags').innerHTML = '';
+  setHeader(conv.title, '', 'CIM');
   document.getElementById('messages').innerHTML = `
-    <div class="msg msg-eva">
-      <div class="bubble">Olá! Sou a EVA. Me diga qual documento quer gerar ou anexe um PDF ao data room (📎).<br><br>
-      Exemplos:<br>• <em>CIM da Nubank</em><br>• <em>Valuation da Apple</em></div>
-      <div class="msg-time">agora</div>
-    </div>`;
-  document.getElementById('rightPanel').style.display = 'none';
-  document.getElementById('approveSection').style.display = 'none';
-  document.getElementById('downloadBtn').style.display = 'none';
+    <div class="feed-empty" id="emptyMain"><div class="icon">✦</div>
+    <p>Anexe um PDF e descreva o documento<br>que quer gerar.</p></div>`;
+  resetDocPane();
   showPanel('conversations');
   loadConversations();
   document.getElementById('msgInput').focus();
@@ -373,19 +573,37 @@ async function selectConversation(id) {
     if (!res.ok) return;
     const conv = await res.json();
     currentDealId = conv.deal_id || null;
-    showChatArea();
-    document.getElementById('chatTitle').textContent = conv.title;
-    document.getElementById('chatTags').innerHTML = '';
+    setHeader(conv.title, extractCompany(conv.title), 'CIM');
     document.getElementById('messages').innerHTML = '';
-    conv.messages.forEach(m => addMessage(m.content, m.role === 'user' ? 'user' : 'eva', false));
+    conv.messages.forEach(m => {
+      if (m.role === 'user') addUserPrompt(m.content);
+      else addAgentText(m.content);
+    });
+    if (!conv.messages.length) {
+      document.getElementById('messages').innerHTML = '<div class="feed-empty" id="emptyMain"><div class="icon">✦</div><p>Conversa vazia.</p></div>';
+    }
     if (currentDealId) await loadDealPanel(currentDealId, conv.title);
     showPanel('conversations');
     loadConversations();
+    document.getElementById('navDrawer').classList.add('hidden');
   } catch (e) { console.error(e); }
+}
+
+function extractCompany(title) {
+  const m = title.match(/(?:CIM|Valuation|Due Diligence)\s+(?:da|de|do)\s+(.+)/i);
+  return m ? m[1].trim() : title.replace('Nova conversa', '').trim();
 }
 
 function artifactDownloadUrl(dealId, artifactId) {
   return `${API}/deals/${dealId}/artifacts/${artifactId}/download?token=${encodeURIComponent(token)}`;
+}
+
+function resetDocPane() {
+  document.getElementById('docName').textContent = 'documento.pptx';
+  document.getElementById('docBody').innerHTML = `<div class="doc-page-empty" id="docEmpty"><div class="icon">📄</div><p>O documento gerado<br>aparecerá aqui</p></div>`;
+  document.getElementById('approveSection').style.display = 'none';
+  document.getElementById('approveBtn').style.display = 'none';
+  document.getElementById('docToolbar').style.display = 'none';
 }
 
 async function loadDealPanel(dealId, nome) {
@@ -412,50 +630,33 @@ function auditStatusClass(status) {
 }
 
 function formatDelta(pct) {
-  if (pct == null || pct === undefined) return '—';
+  if (pct == null) return '—';
   return `${Number(pct).toFixed(1)}%`;
 }
 
-function renderFieldAudits(fieldAudits) {
+function renderFieldAuditsTable(fieldAudits) {
   const entries = Object.entries(fieldAudits || {});
-  if (!entries.length) {
-    return '<div class="doc-p">Nenhum campo auditado (modo legado ou sem data room).</div>';
-  }
+  if (!entries.length) return '<p class="doc-p">Nenhum campo auditado.</p>';
   const rows = entries.map(([field, audit]) => {
-    const candidates = (audit.source_candidates || []).slice(0, 3).map(c =>
-      `<div class="candidate">${escHtml(c.source_file || '?')} p.${c.page ?? '—'} · Δ ${formatDelta(c.best_delta_pct)}<br><em>${escHtml((c.quote || '').slice(0, 120))}</em></div>`
-    ).join('');
     const cit = audit.citation;
-    const citLine = cit
-      ? `<div class="candidate"><strong>Fonte:</strong> ${escHtml(cit.source_file || '')} p.${cit.page ?? '—'}<br><em>${escHtml((cit.quote || '').slice(0, 140))}</em></div>`
-      : '';
+    const src = cit ? `${escHtml(cit.source_file || '')} · p.${cit.page ?? '—'}` : '—';
     return `<tr>
-      <td><strong>${escHtml(field)}</strong><br><span style="color:#666">${escHtml(audit.value || '')}</span></td>
+      <td><strong>${escHtml(field)}</strong><br><span style="color:#6b7280">${escHtml(audit.value || '')}</span></td>
       <td><span class="audit-badge ${auditStatusClass(audit.status)}">${escHtml(audit.status || '—')}</span></td>
       <td>${formatDelta(audit.match_delta_pct)}</td>
-      <td>${citLine}${candidates}</td>
+      <td style="font-size:10px">${src}</td>
     </tr>`;
   }).join('');
-  return `<table class="doc-table">
-    <thead><tr><th>Campo</th><th>Status</th><th>Δ match</th><th>Fontes</th></tr></thead>
-    <tbody>${rows}</tbody>
-  </table>`;
+  return `<table class="doc-table"><thead><tr><th>Campo</th><th>Status</th><th>Δ</th><th>Fonte</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 function renderQaSection(review) {
-  const issues = review.qa_issues || [];
   const blocking = review.blocking_issues || [];
   if (review.qa_passed && !blocking.length) {
-    return '<div class="qa-ok">✓ QA factual aprovado — todos os campos citados dentro da tolerância.</div>';
+    return '<div class="qa-ok">✓ QA factual aprovado — campos citados dentro da tolerância.</div>';
   }
-  let html = '';
-  if (blocking.length) {
-    html += blocking.map(i => `<div class="qa-issue">⚠ ${escHtml(i)}</div>`).join('');
-  }
-  issues.filter(i => !blocking.includes(i)).forEach(i => {
-    html += `<div class="qa-issue" style="border-color:#EA580C;background:#FFF7ED;color:#9A3412">ℹ ${escHtml(i)}</div>`;
-  });
-  return html || '<div class="qa-issue">Issues de QA pendentes.</div>';
+  return blocking.map(i => `<div class="qa-issue">⚠ ${escHtml(i)}</div>`).join('') ||
+    '<div class="qa-issue">Issues de QA pendentes.</div>';
 }
 
 function updateApproveUi(review) {
@@ -464,19 +665,16 @@ function updateApproveUi(review) {
   const approveBtn = document.getElementById('approveBtn');
   const badge = document.getElementById('approvedBadge');
   const art = review.artifact;
-
-  section.style.display = 'block';
   const hasBlocking = (review.blocking_issues || []).length > 0;
 
+  section.style.display = 'block';
   if (art.approved || review.active_approval) {
     approveBtn.style.display = 'none';
     overrideBox.style.display = 'none';
     badge.style.display = 'inline';
-    const ov = review.active_approval?.override ? ' (com override)' : '';
-    badge.textContent = `✓ Aprovado v${art.version}${ov}`;
+    badge.textContent = `✓ Aprovado v${art.version}${review.active_approval?.override ? ' (override)' : ''}`;
     return;
   }
-
   approveBtn.style.display = 'inline-block';
   badge.style.display = 'none';
   overrideBox.style.display = hasBlocking ? 'block' : 'none';
@@ -485,14 +683,9 @@ function updateApproveUi(review) {
 
 async function showArtifactPanel(dealId, artifactId, nome, docMeta = {}) {
   currentDealId = dealId;
-  const right = document.getElementById('rightPanel');
-  right.style.display = 'flex';
-  right.style.flexDirection = 'column';
-
   const downloadUrl = artifactDownloadUrl(dealId, artifactId);
   document.getElementById('docDownloadLink').href = downloadUrl;
-  document.getElementById('downloadBtn').style.display = 'inline-block';
-  document.getElementById('downloadBtn').onclick = () => window.open(downloadUrl, '_blank');
+  document.getElementById('docToolbar').style.display = 'flex';
 
   try {
     const res = await apiFetch(`${API}/deals/${dealId}/artifacts/${artifactId}`);
@@ -503,22 +696,22 @@ async function showArtifactPanel(dealId, artifactId, nome, docMeta = {}) {
     const filename = (art.file_path || docMeta.source_file || `${nome}.pptx`).split('/').pop();
 
     document.getElementById('docName').textContent = filename;
-    document.getElementById('docSub').textContent =
-      `${art.artifact_type} · v${art.version} · ${art.status}${review.audit_mode === 'legacy' ? ' · legado' : ''}`;
+    document.getElementById('docPageInfo').textContent = `1 / 1`;
 
     document.getElementById('docBody').innerHTML = `
-      <div class="doc-h1">Resumo</div>
-      <div class="doc-p"><strong>${escHtml(nome)}</strong> · Gerado em ${formatDate(art.created_at || docMeta.criado_em)}</div>
-      <div class="doc-h1">QA factual</div>
+      <div class="doc-h1">${escHtml(nome)}</div>
+      <p class="doc-p">${escHtml(art.artifact_type)} · versão ${art.version} · ${formatDate(art.created_at || docMeta.criado_em)}</p>
+      <div class="doc-h1">Validação factual</div>
       ${renderQaSection(review)}
       <div class="doc-h1">Citações por campo</div>
-      ${renderFieldAudits(review.field_audits)}
+      ${renderFieldAuditsTable(review.field_audits)}
+      <div class="doc-h1">Alinhamento e termos</div>
+      <p class="doc-p">Documento gerado por EVA com rastreabilidade por arquivo e página do data room. Revise os campos acima antes de aprovar.</p>
     `;
     updateApproveUi(review);
+    addStatusLine('Documento pronto para revisão', true);
   } catch (e) {
-    console.error(e);
-    document.getElementById('docBody').innerHTML = `<div class="doc-p">Erro ao carregar revisão: ${escHtml(e.message)}</div>`;
-    document.getElementById('approveSection').style.display = 'none';
+    document.getElementById('docBody').innerHTML = `<p class="doc-p">Erro: ${escHtml(e.message)}</p>`;
   }
 }
 
@@ -530,39 +723,20 @@ async function approveArtifact() {
   const body = {};
   if (blocking.length) {
     const reason = document.getElementById('overrideReason').value.trim();
-    if (!reason) {
-      alert('Informe a justificativa para aprovar com issues bloqueantes.');
-      document.getElementById('overrideReason').focus();
-      return;
-    }
+    if (!reason) { alert('Informe a justificativa.'); return; }
     body.override_reason = reason;
   }
-
   const approveBtn = document.getElementById('approveBtn');
   approveBtn.disabled = true;
   try {
-    const res = await apiFetch(`${API}/deals/${dealId}/artifacts/${artifactId}/approve`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    });
+    const res = await apiFetch(`${API}/deals/${dealId}/artifacts/${artifactId}/approve`, { method: 'POST', body: JSON.stringify(body) });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const msg = data.detail?.message || data.detail || 'Falha na aprovação';
-      throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
-    }
-    currentArtifactReview = {
-      ...currentArtifactReview,
-      artifact: data.artifact,
-      active_approval: data.approval,
-      blocking_issues: [],
-    };
+    if (!res.ok) throw new Error(data.detail?.message || data.detail || 'Falha na aprovação');
+    currentArtifactReview = { ...currentArtifactReview, artifact: data.artifact, active_approval: data.approval, blocking_issues: [] };
     updateApproveUi(currentArtifactReview);
-    addMessage('✅ Documento <strong>aprovado</strong> pelo revisor.', 'eva');
-  } catch (e) {
-    alert(e.message);
-  } finally {
-    approveBtn.disabled = false;
-  }
+    addStatusLine('Documento aprovado pelo revisor', true);
+  } catch (e) { alert(e.message); }
+  finally { approveBtn.disabled = false; }
 }
 
 async function ensureConversation() {
@@ -578,31 +752,19 @@ async function loadDeals() {
   try {
     const res = await apiFetch(`${API}/deals`);
     if (!res.ok) return;
-    const deals = await res.json();
-    renderDealList(deals);
-  } catch(e) { console.error(e); }
+    renderDealList(await res.json());
+  } catch (e) { console.error(e); }
 }
 
 function renderDealList(deals) {
   const list = document.getElementById('dealList');
-  if (!deals.length) {
-    list.innerHTML = '<div class="empty-state">Nenhum deal ainda.<br>Clique em + Novo para começar.</div>';
-    return;
-  }
-  const typeTag = { CIM: 'tag-cim', VALUATION: 'tag-val', DUE_DILIGENCE: 'tag-dd' };
+  if (!deals.length) { list.innerHTML = '<div class="drawer-empty">Nenhum deal.</div>'; return; }
   const typeLabel = { CIM: 'CIM', VALUATION: 'Valuation', DUE_DILIGENCE: 'Due Diligence' };
   list.innerHTML = deals.map(d => `
-    <div class="deal-item" onclick="selectDeal('${d.id}','${escHtml(d.nome)}','${d.document_type||'CIM'}')">
-      <div class="deal-title">${escHtml(d.nome)}</div>
-      <div class="deal-meta">
-        <span class="deal-time">${formatDate(d.criado_em)}</span>
-        <span class="tag ${typeTag[d.document_type]||'tag-dd'}">${typeLabel[d.document_type]||d.document_type}</span>
-        ${(d.document_count > 0 || d.has_ready_artifact || (d.documentos&&d.documentos.length))
-          ? '<span class="tag tag-ok">Pronto</span>'
-          : '<span class="tag tag-proc">Rascunho</span>'}
-      </div>
-    </div>
-  `).join('');
+    <div class="drawer-item" onclick="selectDeal('${d.id}','${escHtml(d.nome)}','${d.document_type||'CIM'}')">
+      <div class="drawer-item-title">${escHtml(d.nome)}</div>
+      <div class="drawer-item-meta">${typeLabel[d.document_type]||'CIM'} · ${formatDate(d.criado_em)}</div>
+    </div>`).join('');
 }
 
 function escHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -610,68 +772,45 @@ function escHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<
 function formatDate(iso) {
   if (!iso) return '';
   const d = new Date(iso), now = new Date();
-  if (d.toDateString()===now.toDateString()) return d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
-  return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'short'});
+  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
 }
 
 async function selectDeal(dealId, nome, type) {
-  document.querySelectorAll('.deal-item').forEach(el => el.classList.remove('active'));
-  event.currentTarget.classList.add('active');
   currentDealId = dealId;
-
-  const typeLabel = { CIM:'CIM', VALUATION:'Valuation', DUE_DILIGENCE:'Due Diligence' };
-  const typeTag   = { CIM:'tag-cim', VALUATION:'tag-val', DUE_DILIGENCE:'tag-dd' };
-
-  showChatArea();
-  document.getElementById('chatTitle').textContent = `${typeLabel[type]||type} — ${nome}`;
-  document.getElementById('chatTags').innerHTML = `<span class="tag ${typeTag[type]||'tag-dd'}">${typeLabel[type]||type}</span>`;
+  currentDocType = type;
+  setHeader(`${nome}`, nome, type);
   document.getElementById('messages').innerHTML = '';
-
+  document.getElementById('navDrawer').classList.add('hidden');
   try {
     const res = await apiFetch(`${API}/deal/${dealId}`);
     if (!res.ok) return;
     const data = await res.json();
-    if (data.documentos && data.documentos.length) {
+    if (data.documentos?.length) {
       const doc = data.documentos.find(d => d.artifact_id) || data.documentos[0];
       if (doc.artifact_id) {
         showDocument(doc, dealId, nome);
-        addMessage(`✅ Documento <strong>${nome}</strong> disponível para download.`, 'eva');
+        addAgentText(`Documento <strong>${escHtml(nome)}</strong> disponível para revisão.`);
       } else {
-        addMessage(`📁 Data room: <strong>${doc.source_file || doc.nome}</strong> indexado (${doc.status}).`, 'eva');
+        addStatusLine(`Data room: ${doc.source_file || doc.nome} indexado`, true);
       }
     } else {
-      addMessage('Nenhum documento neste deal ainda. Anexe um PDF no chat (📎).', 'eva');
+      addAgentText('Nenhum documento neste deal. Anexe um PDF no chat.');
     }
-  } catch(e) { console.error(e); }
+  } catch (e) { console.error(e); }
 }
 
 function showDocument(doc, dealId, nome) {
-  const artifactId = doc.artifact_id || doc.id;
-  showArtifactPanel(dealId, artifactId, nome, doc);
-}
-
-function showChatArea() {
-  document.getElementById('emptyMain').style.display = 'none';
-  const chat = document.getElementById('chatArea');
-  chat.style.display = 'flex';
-  chat.style.flexDirection = 'column';
-  chat.style.flex = '1';
+  showArtifactPanel(dealId, doc.artifact_id || doc.id, nome, doc);
 }
 
 function showNewDeal() {
-  document.querySelectorAll('.deal-item').forEach(el => el.classList.remove('active'));
-  showChatArea();
-  document.getElementById('chatTitle').textContent = 'Novo documento';
-  document.getElementById('chatTags').innerHTML = '';
-  document.getElementById('rightPanel').style.display = 'none';
-  document.getElementById('approveSection').style.display = 'none';
-  document.getElementById('messages').innerHTML = `
-    <div class="msg msg-eva">
-      <div class="bubble">Olá! Sou a EVA. Me diga qual documento quer gerar.<br><br>
-      Exemplos:<br>• <em>CIM da Nubank</em><br>• <em>Valuation da Apple</em><br>• <em>Due diligence da Loggi</em></div>
-      <div class="msg-time">agora</div>
-    </div>`;
-  document.getElementById('downloadBtn').style.display = 'none';
+  currentConversationId = null;
+  currentDealId = null;
+  setHeader('Novo documento', '', 'CIM');
+  document.getElementById('messages').innerHTML = '<div class="feed-empty" id="emptyMain"><div class="icon">✦</div><p>Descreva o documento M&amp;A.</p></div>';
+  resetDocPane();
+  document.getElementById('navDrawer').classList.add('hidden');
   document.getElementById('msgInput').focus();
 }
 
@@ -681,9 +820,11 @@ async function sendMsg() {
   if (!text) return;
   input.value = '';
 
+  const tagsHtml = document.getElementById('chatTags').innerHTML;
   try {
     await ensureConversation();
-    showChatArea();
+    addUserPrompt(escHtml(text), tagsHtml);
+    addThoughtBlock('Planejando geração...');
 
     const res = await apiFetch(`${API}/jobs/web`, {
       method: 'POST',
@@ -695,61 +836,68 @@ async function sendMsg() {
     }
     const job = await res.json();
     if (job.deal_id) currentDealId = job.deal_id;
-    addMessage(text, 'user');
+    if (job.company_name) setHeader(`${job.company_name}`, job.company_name, job.document_type || 'CIM');
+
+    addStatusLine(`Deal vinculado · job ${job.id.slice(0, 8)}...`);
     showTasksCard(job.id);
     pollJob(job.id, job.company_name);
     loadConversations();
-  } catch(e) {
-    addMessage(`❌ ${e.message}`, 'eva');
+  } catch (e) {
+    addAgentText(`❌ ${escHtml(e.message)}`);
   }
 }
 
-function addMessage(html, type, scroll = true) {
-  const msgs = document.getElementById('messages');
-  const div = document.createElement('div');
-  div.className = `msg msg-${type}`;
-  div.innerHTML = `<div class="bubble">${html}</div><div class="msg-time">${new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</div>`;
-  msgs.appendChild(div);
-  if (scroll) msgs.scrollTop = msgs.scrollHeight;
-}
-
-function updateLastMsg(html) {
-  const msgs = document.getElementById('messages');
-  const items = msgs.querySelectorAll('.msg-eva');
-  const last = items[items.length-1]?.querySelector('.bubble');
-  if (last) last.innerHTML = html;
-}
+const TASK_DEFS = [
+  { id: 1, name: 'Pesquisa e data room', meta: 'RAG · Tavily' },
+  { id: 2, name: 'Análise financeira', meta: 'KPIs · citações' },
+  { id: 3, name: 'Geração do documento', meta: 'PPTX / DOCX' },
+  { id: 4, name: 'Validação QA factual', meta: 'UNCITED · DIVERGENT' },
+];
 
 function showTasksCard(jobId) {
-  const msgs = document.getElementById('messages');
+  hideEmptyFeed();
+  const feed = document.getElementById('messages');
   const card = document.createElement('div');
-  card.className = 'msg msg-eva';
+  card.className = 'task-section';
   card.id = `tasks-${jobId}`;
   card.innerHTML = `
-    <div class="tasks-card">
-      <div class="tasks-label">Progresso</div>
-      <div class="task-row"><div class="task-dot t-run" id="t1-${jobId}">▶</div><span>Pesquisa de dados</span></div>
-      <div class="task-row"><div class="task-dot t-wait" id="t2-${jobId}">○</div><span>Análise financeira</span></div>
-      <div class="task-row"><div class="task-dot t-wait" id="t3-${jobId}">○</div><span>Geração do documento</span></div>
-      <div class="task-row"><div class="task-dot t-wait" id="t4-${jobId}">○</div><span>Validação QA</span></div>
+    <div class="task-section-header" onclick="this.nextElementSibling.classList.toggle('hidden')">
+      <span class="chev">›</span> Pipeline de geração
     </div>
-    <div class="msg-time">${new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</div>`;
-  msgs.appendChild(card);
-  msgs.scrollTop = msgs.scrollHeight;
+    <div class="task-section-body">
+      ${TASK_DEFS.map(t => `
+        <div class="task-item" id="task-row-${t.id}-${jobId}">
+          <div class="task-icon wait" id="t${t.id}-${jobId}">○</div>
+          <div class="task-info">
+            <div class="task-name">${t.name}</div>
+            <div class="task-meta">${t.meta}</div>
+          </div>
+          <span class="task-logs">View logs</span>
+        </div>`).join('')}
+      <div class="task-footer" id="task-footer-${jobId}">
+        <span id="task-summary-${jobId}">0 / ${TASK_DEFS.length} etapas</span>
+        <span>⏳</span>
+      </div>
+    </div>`;
+  feed.appendChild(card);
+  feed.scrollTop = feed.scrollHeight;
 }
 
 function pollJob(jobId, companyName) {
   if (pollTimer) clearInterval(pollTimer);
-  let step = 1;
+  let step = 0;
   pollTimer = setInterval(async () => {
     try {
-      step = Math.min(step + 1, 4);
+      step = Math.min(step + 1, TASK_DEFS.length);
       for (let i = 1; i < step; i++) {
         const d = document.getElementById(`t${i}-${jobId}`);
-        if (d && !d.classList.contains('t-done')) { d.className='task-dot t-done'; d.textContent='✓'; }
+        if (d) { d.className = 'task-icon done'; d.textContent = '✓'; }
       }
       const cur = document.getElementById(`t${step}-${jobId}`);
-      if (cur && !cur.classList.contains('t-done')) { cur.className='task-dot t-run'; cur.textContent='▶'; }
+      if (cur && !cur.classList.contains('done')) { cur.className = 'task-icon run'; cur.textContent = '▶'; }
+
+      const summary = document.getElementById(`task-summary-${jobId}`);
+      if (summary) summary.textContent = `${Math.min(step, TASK_DEFS.length)} / ${TASK_DEFS.length} etapas`;
 
       const res = await apiFetch(`${API}/jobs/${jobId}/status`);
       if (!res.ok) return;
@@ -757,110 +905,94 @@ function pollJob(jobId, companyName) {
 
       if (job.status === 'done') {
         clearInterval(pollTimer);
-        for (let i=1;i<=4;i++) {
+        for (let i = 1; i <= TASK_DEFS.length; i++) {
           const d = document.getElementById(`t${i}-${jobId}`);
-          if (d) { d.className='task-dot t-done'; d.textContent='✓'; }
+          if (d) { d.className = 'task-icon done'; d.textContent = '✓'; }
         }
-        if (currentConversationId) {
-          selectConversation(currentConversationId);
-        } else {
-          addMessage(`✅ <strong>${companyName}</strong> está pronto!`, 'eva');
-        }
+        const footer = document.getElementById(`task-footer-${jobId}`);
+        if (footer) { footer.className = 'task-footer done'; footer.innerHTML = '<span>Todas as etapas concluídas</span><span>✓ 4/4</span>'; }
+        addStatusLine('Artefato gerado e indexado no deal', true);
+        addAgentText(`<strong>${escHtml(companyName)}</strong> está pronto. Revise o documento à direita e aprove quando satisfeito.`);
+        if (currentConversationId) selectConversation(currentConversationId);
+        else if (currentDealId) loadDealPanel(currentDealId, companyName);
         loadConversations();
         loadDeals();
       }
       if (job.status === 'error') {
         clearInterval(pollTimer);
-        addMessage(`❌ Erro: ${job.error||'tente novamente.'}`, 'eva');
+        addAgentText(`❌ Erro: ${escHtml(job.error || 'tente novamente.')}`);
       }
-    } catch(e) { console.error(e); }
+    } catch (e) { console.error(e); }
   }, 4000);
 }
 
-document.getElementById('msgInput').addEventListener('keydown', e => { if(e.key==='Enter') sendMsg(); });
+document.getElementById('msgInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); }
+});
 
 function showPanel(name) {
-  ['conversations','deals','search','files','settings'].forEach(p => {
-    document.getElementById(`panel-${p}`).style.display = p === name ? 'flex' : 'none';
+  ['conversations', 'deals', 'search', 'files', 'settings'].forEach(p => {
+    document.getElementById(`panel-${p}`)?.classList.toggle('active', p === name);
     document.getElementById(`btn-${p}`)?.classList.toggle('active', p === name);
   });
-  document.getElementById(`panel-${name}`).style.flexDirection = 'column';
+  document.getElementById('navDrawer').classList.remove('hidden');
   if (name === 'files') loadFiles();
   if (name === 'conversations') loadConversations();
-  if (name === 'settings') {
-    document.getElementById('settingsPhone').textContent = phone || '—';
-  }
+  if (name === 'deals') loadDeals();
+  if (name === 'settings') document.getElementById('settingsPhone').textContent = phone || '—';
 }
 
 async function uploadChatDocument(file) {
   if (!file) return;
   try {
     await ensureConversation();
-    showChatArea();
-    addMessage(`📎 Enviando <strong>${escHtml(file.name)}</strong>...`, 'user');
+    addUserPrompt(`📎 ${escHtml(file.name)}`);
+    addThoughtBlock('Ingerindo documento...');
     const formData = new FormData();
     formData.append('file', file);
     const res = await fetch(`${API}/conversations/${currentConversationId}/documents`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}` },
-      body: formData
+      method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: formData
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.detail || 'Erro na ingestão');
     currentDealId = body.deal_id;
-    addMessage(`✅ Documento <strong>${escHtml(file.name)}</strong> ingerido (${body.chunk_count} chunks).`, 'eva');
+    addStatusLine(`Ingeriu ${escHtml(file.name)} · ${body.chunk_count} chunks indexados`, true);
+    addAgentText('Documento no data room. Agora peça o CIM ou Valuation.');
     loadConversations();
-  } catch (e) {
-    addMessage(`❌ ${e.message}`, 'eva');
-  }
+  } catch (e) { addAgentText(`❌ ${escHtml(e.message)}`); }
   document.getElementById('chatFileInput').value = '';
 }
 
-function searchDeals() {
-  const q = document.getElementById('searchInput').value.toLowerCase().trim();
+function searchDeals(q) {
   const results = document.getElementById('searchResults');
-  if (!q) { results.innerHTML = ''; return; }
+  if (!q?.trim()) { results.innerHTML = ''; return; }
   apiFetch(`${API}/deals`).then(r => r.json()).then(deals => {
-    const filtered = deals.filter(d => d.nome.toLowerCase().includes(q));
-    if (!filtered.length) { results.innerHTML = '<div style="font-size:13px;color:#aaa;text-align:center;padding:20px">Nenhum resultado</div>'; return; }
-    const typeTag = { CIM:'tag-cim', VALUATION:'tag-val', DUE_DILIGENCE:'tag-dd' };
-    results.innerHTML = filtered.map(d => `
-      <div class="deal-item" onclick="selectDeal('${d.id}','${escHtml(d.nome)}','${d.document_type||'CIM'}');showPanel('deals')">
-        <div class="deal-title">${escHtml(d.nome)}</div>
-        <div class="deal-meta">
-          <span class="tag ${typeTag[d.document_type]||'tag-dd'}">${d.document_type||'CIM'}</span>
-        </div>
-      </div>`).join('');
+    const filtered = deals.filter(d => d.nome.toLowerCase().includes(q.toLowerCase()));
+    results.innerHTML = filtered.length ? filtered.map(d => `
+      <div class="drawer-item" onclick="selectDeal('${d.id}','${escHtml(d.nome)}','${d.document_type||'CIM'}')">
+        <div class="drawer-item-title">${escHtml(d.nome)}</div>
+      </div>`).join('') : '<div style="font-size:12px;color:#aaa;padding:12px">Nenhum resultado</div>';
   });
 }
 
 async function uploadFile(file) {
   if (!file) return;
   const msg = document.getElementById('uploadMsg');
-  msg.style.display = 'block';
-  msg.textContent = `Enviando ${file.name}...`;
-  const formData = new FormData();
-  formData.append('file', file);
+  msg.style.display = 'block'; msg.textContent = `Enviando ${file.name}...`;
+  const formData = new FormData(); formData.append('file', file);
   try {
-    const res = await fetch(`${API}/files/upload`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}` },
-      body: formData
-    });
+    const res = await fetch(`${API}/files/upload`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: formData });
     if (!res.ok) throw new Error('Erro no upload');
-    msg.textContent = `✅ ${file.name} enviado com sucesso`;
+    msg.textContent = `✅ ${file.name} enviado`;
     loadFiles();
-  } catch(e) {
-    msg.textContent = `❌ ${e.message}`;
-  }
+  } catch (e) { msg.textContent = `❌ ${e.message}`; }
   document.getElementById('fileInput').value = '';
 }
 
 function handleDrop(e) {
   e.preventDefault();
-  document.getElementById('dropZone').style.borderColor = '#e8e8e8';
-  const file = e.dataTransfer.files[0];
-  if (file) uploadFile(file);
+  document.getElementById('dropZone').style.borderColor = '#e5e7eb';
+  if (e.dataTransfer.files[0]) uploadFile(e.dataTransfer.files[0]);
 }
 
 async function loadFiles() {
@@ -868,34 +1000,14 @@ async function loadFiles() {
     const res = await apiFetch(`${API}/files`);
     if (!res.ok) return;
     const body = await res.json();
-    const files = body.files || [];
     const list = document.getElementById('fileList');
-    if (!body.storage_enabled) {
-      list.innerHTML = '<div style="font-size:12px;color:#aaa;text-align:center;padding:12px">Armazenamento não configurado</div>';
-      return;
-    }
-    if (!files.length) {
-      list.innerHTML = '<div style="font-size:12px;color:#aaa;text-align:center;padding:12px">Nenhum arquivo ainda</div>';
-      return;
-    }
-    list.innerHTML = files.map(f => `
-      <div style="display:flex;align-items:center;gap:8px;padding:9px 12px;background:#f8f8f8;border-radius:8px;cursor:pointer"
-        onclick="window.open('${f.url}', '_blank')">
-        <span style="font-size:16px">${fileIcon(f.name)}</span>
-        <div style="flex:1;min-width:0">
-          <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(f.name)}</div>
-          <div style="font-size:10px;color:#aaa">${f.size || ''}</div>
-        </div>
-        <span style="font-size:11px;color:#aaa">↓</span>
+    if (!body.storage_enabled) { list.innerHTML = '<div style="font-size:11px;color:#aaa;text-align:center">Storage não configurado</div>'; return; }
+    if (!body.files?.length) { list.innerHTML = '<div style="font-size:11px;color:#aaa;text-align:center">Nenhum arquivo</div>'; return; }
+    list.innerHTML = body.files.map(f => `
+      <div style="padding:8px 10px;background:#f9fafb;border-radius:8px;cursor:pointer;font-size:12px" onclick="window.open('${f.url}','_blank')">
+        ${escHtml(f.name)} <span style="color:#aaa;font-size:10px">${f.size||''}</span>
       </div>`).join('');
-  } catch(e) { console.error(e); }
-}
-
-function fileIcon(name) {
-  if (!name) return '📄';
-  const ext = name.split('.').pop().toLowerCase();
-  const icons = { pdf:'📕', pptx:'📊', ppt:'📊', docx:'📝', doc:'📝', xlsx:'📗', xls:'📗', png:'🖼', jpg:'🖼', jpeg:'🖼', mp4:'🎬', zip:'🗜' };
-  return icons[ext] || '📄';
+  } catch (e) { console.error(e); }
 }
 
 async function initPlatform() {
@@ -903,17 +1015,13 @@ async function initPlatform() {
     const res = await apiFetch(`${API}/me`);
     if (res.ok) {
       const me = await res.json();
-      if (me.storage_enabled) {
-        document.getElementById('btn-files').style.display = '';
-        loadFiles();
-      }
+      if (me.storage_enabled) { document.getElementById('btn-files').style.display = ''; loadFiles(); }
     }
   } catch (e) { console.error(e); }
   loadConversations();
   loadDeals();
 }
 
-// Inicia
 initPlatform();
 </script>
 </body>
