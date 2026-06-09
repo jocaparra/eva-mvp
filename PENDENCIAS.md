@@ -2,16 +2,16 @@
 
 Registro de dúvidas, bloqueios e justificativas, conforme regras 1 e 7 do spec.
 
-## Bloqueios ativos
+## Resolvidos
 
-1. **`index.html` da landing aprovada não está no repositório.**
-   O usuário confirmou que vai enviar o arquivo no chat. A Fase 1 (porte para
-   `apps/web/app/(marketing)/page.tsx`) fica bloqueada até recebê-lo.
-   Enquanto isso, existe um placeholder minimalista com os design tokens.
+1. ~~`index.html` da landing aprovada não está no repositório.~~
+   **Resolvido na Fase 1:** o usuário forneceu o arquivo em
+   `~/EVA LANDING PAGE/index.html`; portado para
+   `apps/web/app/(marketing)/page.tsx` com CSS escopado em `landing.css`.
 
-2. **Assets da landing ausentes:** `public/assets/logo-eva-black.png` e
-   `public/assets/hero-product.png` não existem no repo. Serão criados como
-   placeholders na Fase 1 se não forem fornecidos (sem quebrar o build).
+2. ~~Assets da landing ausentes.~~
+   **Resolvido na Fase 1:** `logo-eva-black.png` e `hero-product.png` copiados
+   da pasta da landing para `apps/web/public/assets/`.
 
 ## Avisos operacionais
 
