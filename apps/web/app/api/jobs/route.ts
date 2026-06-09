@@ -11,6 +11,8 @@ const createJobSchema = z.object({
     .max(4000, "O objetivo é longo demais (máximo 4000 caracteres)."),
 });
 
+const MAX_JOBS_PER_HOUR = 10;
+
 function deriveTitle(prompt: string): string {
   const singleLine = prompt.replace(/\s+/g, " ").trim();
   return singleLine.length > 80 ? `${singleLine.slice(0, 77)}...` : singleLine;
@@ -50,6 +52,22 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: parsed.error.issues[0]?.message ?? "Dados inválidos." },
       { status: 400 },
+    );
+  }
+
+  // Rate limit: protege custo de LLM (regra 10 do spec).
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const { count } = await supabase
+    .from("jobs")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", user.id)
+    .gte("created_at", oneHourAgo);
+  if ((count ?? 0) >= MAX_JOBS_PER_HOUR) {
+    return NextResponse.json(
+      {
+        error: `Limite de ${MAX_JOBS_PER_HOUR} jobs por hora atingido. Aguarde um pouco antes de criar outro.`,
+      },
+      { status: 429 },
     );
   }
 

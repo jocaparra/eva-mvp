@@ -399,7 +399,7 @@ export default function LandingPage() {
               <a href={WHATSAPP_DEMO_URL} target="_blank" rel="noopener noreferrer">
                 Contato
               </a>
-              <a href="#">Política de Privacidade</a>
+              <Link href="/privacidade">Política de Privacidade</Link>
             </div>
           </div>
         </div>

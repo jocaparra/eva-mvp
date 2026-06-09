@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
   JOB_STATUS_CLASSES,
@@ -32,12 +33,15 @@ const TIPO_LABEL: Record<DeliverableRow["tipo"], string> = {
 };
 
 export function JobDetail({ jobId }: { jobId: string }) {
+  const router = useRouter();
   const [job, setJob] = useState<JobRow | null>(null);
   const [steps, setSteps] = useState<JobStepRow[]>([]);
   const [messages, setMessages] = useState<MessageRow[]>([]);
   const [deliverables, setDeliverables] = useState<DeliverableRow[]>([]);
   const [notFound, setNotFound] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
     const supabase = createClient();
@@ -63,6 +67,29 @@ export function JobDetail({ jobId }: { jobId: string }) {
     const interval = setInterval(() => void fetchAll(), POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [fetchAll]);
+
+  async function handleRetry() {
+    if (!job) return;
+    setRetrying(true);
+    setRetryError(null);
+    try {
+      const response = await fetch("/api/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: job.prompt }),
+      });
+      const body = (await response.json()) as { id?: string; error?: string };
+      if (!response.ok || !body.id) {
+        setRetryError(body.error ?? "Não foi possível tentar de novo.");
+        setRetrying(false);
+        return;
+      }
+      router.push(`/app/jobs/${body.id}`);
+    } catch {
+      setRetryError("Falha de conexão. Tente novamente.");
+      setRetrying(false);
+    }
+  }
 
   async function handleDownload(deliverableId: string) {
     setDownloadError(null);
@@ -122,6 +149,22 @@ export function JobDetail({ jobId }: { jobId: string }) {
         <p className="mt-4 rounded-eva border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {job.error}
         </p>
+      ) : null}
+
+      {job.status === "failed" ? (
+        <div className="mt-4">
+          <button
+            type="button"
+            onClick={() => void handleRetry()}
+            disabled={retrying}
+            className="rounded-eva bg-eva-dark px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1E293B] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {retrying ? "Reenviando..." : "Tentar novamente"}
+          </button>
+          {retryError ? (
+            <p className="mt-2 text-sm text-red-700">{retryError}</p>
+          ) : null}
+        </div>
       ) : null}
 
       {/* ── Timeline ── */}

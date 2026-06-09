@@ -21,6 +21,22 @@ Registro de dúvidas, bloqueios e justificativas, conforme regras 1 e 7 do spec.
    Railway para `legacy/`, ou (b) desativar o serviço se o app antigo for
    descontinuado.
 
+4. **Setup do Supabase pendente (operação manual):** para o fluxo completo
+   funcionar é preciso (a) criar o projeto no Supabase, (b) rodar as
+   migrations `0001`–`0003` no SQL Editor, (c) habilitar o provider Google
+   em Authentication, (d) preencher o `.env` e (e) rodar `npm run seed:admin`
+   após criar a conta do admin. Passo a passo no README.
+
+5. **Puppeteer no deploy do worker:** o download do Chromium acontece no
+   `npm install`. Em ambientes slim (Railway/Render), garanta as libs de
+   sistema do Chrome ou use buildpack/nixpacks com `chromium`. Flags
+   `--no-sandbox` já configuradas no código para containers.
+
+6. **Verificação funcional ponta a ponta pendente:** todas as fases passaram
+   em build/lint/typecheck/testes, mas o critério "criar conta → aprovar →
+   job → download" exige um projeto Supabase real + chave Anthropic. Assim
+   que o `.env` estiver preenchido, validar o fluxo completo.
+
 ## Justificativas de dependências fora da lista da seção 2
 
 0. **`@supabase/ssr` (apps/web):** pacote oficial do Supabase para auth
