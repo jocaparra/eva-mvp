@@ -1,0 +1,20 @@
+{
+  "name": "eva-mvp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "EVA — runtime operacional assíncrono para análise, documentação e decisão.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace apps/web",
+    "dev:worker": "npm run dev --workspace apps/worker",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present"
+  }
+}

@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens da EVA (seção 3 do spec) — usados na landing e nas telas internas.
+ */
+@theme {
+  --color-eva-text: #0f172a;
+  --color-eva-secondary: #64748b;
+  --color-eva-tertiary: #94a3b8;
+  --color-eva-border: #e2e8f0;
+  --color-eva-bg-alt: #f8fafc;
+  --color-eva-dark: #0f172a;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Instrument Serif", ui-serif, Georgia, serif;
+
+  --radius-eva: 6px;
+}
+
+body {
+  color: var(--color-eva-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
