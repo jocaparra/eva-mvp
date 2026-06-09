@@ -67,11 +67,16 @@ body { font-family: 'Inter', sans-serif; background: #f7f7f8; display: flex; hei
 .workspace { flex: 1; display: flex; min-width: 0; }
 .process-pane {
   flex: 1; display: flex; flex-direction: column; min-width: 0;
-  background: #fff; border-right: 1px solid #e8e8e8;
+  background: #fff;
 }
 .doc-pane {
-  width: 46%; min-width: 380px; max-width: 720px;
+  width: 0; min-width: 0; max-width: 0; overflow: hidden; opacity: 0;
   display: flex; flex-direction: column; background: #e8e8ea; flex-shrink: 0;
+  transition: width .28s ease, min-width .28s ease, max-width .28s ease, opacity .22s ease;
+}
+.workspace.doc-open .process-pane { border-right: 1px solid #e8e8e8; }
+.workspace.doc-open .doc-pane {
+  width: 46%; min-width: 380px; max-width: 720px; opacity: 1;
 }
 
 /* ── Process header ── */
@@ -207,11 +212,18 @@ body { font-family: 'Inter', sans-serif; background: #f7f7f8; display: flex; hei
 .doc-tabbar {
   padding: 10px 16px; background: #fff; border-bottom: 1px solid #e0e0e0;
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  min-width: 380px;
 }
 .doc-tab {
   display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 500;
   background: #f3f4f6; padding: 6px 12px; border-radius: 8px; max-width: 55%;
 }
+.doc-tab-close {
+  width: 20px; height: 20px; border: none; background: transparent; border-radius: 4px;
+  color: #9ca3af; cursor: pointer; font-size: 14px; line-height: 1; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.doc-tab-close:hover { background: #e5e7eb; color: #374151; }
 .doc-tab-icon { font-size: 14px; }
 .doc-tab-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .doc-actions { display: flex; gap: 6px; }
@@ -226,9 +238,36 @@ body { font-family: 'Inter', sans-serif; background: #f7f7f8; display: flex; hei
 .doc-btn-primary:hover { opacity: .9; background: #111; }
 
 .doc-canvas {
-  flex: 1; overflow-y: auto; padding: 24px 20px 80px;
-  display: flex; justify-content: center;
+  flex: 1; overflow-y: auto; padding: 0; min-height: 0;
+  display: flex; flex-direction: column;
 }
+.doc-canvas.review-mode { padding: 24px 20px 80px; justify-content: center; }
+.doc-preview-frame {
+  flex: 1; width: 100%; min-height: 480px; border: none; background: #525659;
+}
+.doc-generating {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 14px; padding: 40px; color: #6b7280; text-align: center;
+}
+.doc-generating .spinner {
+  width: 32px; height: 32px; border: 3px solid #e5e7eb; border-top-color: #7c3aed;
+  border-radius: 50%; animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.doc-generating p { font-size: 13px; line-height: 1.5; }
+.doc-generating .sub { font-size: 11px; color: #9ca3af; }
+
+/* File chips (Claude-style attachments) */
+.file-chip-row { display: flex; flex-wrap: wrap; gap: 8px; max-width: 92%; }
+.file-chip {
+  display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px;
+  background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
+  font-size: 12px; font-weight: 500; color: #374151; cursor: pointer;
+  font-family: inherit; transition: background .12s, border-color .12s;
+}
+.file-chip:hover { background: #f9fafb; border-color: #d1d5db; }
+.file-chip .chip-icon { font-size: 16px; }
+.file-chip .chip-meta { font-size: 10px; color: #9ca3af; font-weight: 400; }
 .doc-page {
   width: 100%; max-width: 560px; background: #fff; min-height: 640px;
   box-shadow: 0 2px 12px rgba(0,0,0,.12); border-radius: 2px;
@@ -395,22 +434,18 @@ body { font-family: 'Inter', sans-serif; background: #f7f7f8; display: flex; hei
     <div class="doc-pane-inner">
       <div class="doc-tabbar">
         <div class="doc-tab">
-          <span class="doc-tab-icon">📄</span>
-          <span class="doc-tab-name" id="docName">documento.pptx</span>
+          <span class="doc-tab-icon" id="docTabIcon">📄</span>
+          <span class="doc-tab-name" id="docName">documento</span>
+          <button class="doc-tab-close" type="button" title="Fechar painel" onclick="closeDocPane()">×</button>
         </div>
         <div class="doc-actions">
-          <a class="doc-btn" id="docDownloadLink" href="#" target="_blank">⬇ Download</a>
+          <a class="doc-btn hidden" id="docDownloadLink" href="#" target="_blank">⬇ Download</a>
           <button class="doc-btn doc-btn-primary" id="approveBtn" onclick="approveArtifact()" style="display:none">✓ Aprovar</button>
         </div>
       </div>
 
-      <div class="doc-canvas">
-        <div class="doc-page" id="docBody">
-          <div class="doc-page-empty" id="docEmpty">
-            <div class="icon">📄</div>
-            <p>O documento gerado<br>aparecerá aqui</p>
-          </div>
-        </div>
+      <div class="doc-canvas review-mode" id="docCanvas">
+        <div class="doc-page" id="docBody"></div>
       </div>
 
       <div class="doc-approve" id="approveSection" style="display:none">
@@ -440,6 +475,7 @@ let currentDealId = null;
 let currentArtifactReview = null;
 let currentCompanyTag = '';
 let currentDocType = 'CIM';
+let docPaneMode = null; // null | 'generating' | 'source' | 'artifact'
 
 if (!token) window.location.href = '/login';
 if (phone) document.getElementById('avatar').textContent = phone.slice(-2).toUpperCase();
@@ -568,6 +604,7 @@ async function newConversation() {
 
 async function selectConversation(id) {
   currentConversationId = id;
+  resetDocPane();
   try {
     const res = await apiFetch(`${API}/conversations/${id}`);
     if (!res.ok) return;
@@ -598,28 +635,136 @@ function artifactDownloadUrl(dealId, artifactId) {
   return `${API}/deals/${dealId}/artifacts/${artifactId}/download?token=${encodeURIComponent(token)}`;
 }
 
-function resetDocPane() {
-  document.getElementById('docName').textContent = 'documento.pptx';
-  document.getElementById('docBody').innerHTML = `<div class="doc-page-empty" id="docEmpty"><div class="icon">📄</div><p>O documento gerado<br>aparecerá aqui</p></div>`;
+function documentDownloadUrl(dealId, docId) {
+  return `${API}/deal/${dealId}/download/${docId}?token=${encodeURIComponent(token)}`;
+}
+
+function fileIcon(name) {
+  const ext = (name || '').split('.').pop().toLowerCase();
+  if (ext === 'pdf') return '📕';
+  if (['pptx', 'ppt'].includes(ext)) return '📊';
+  if (['docx', 'doc'].includes(ext)) return '📝';
+  if (['xlsx', 'xls'].includes(ext)) return '📈';
+  return '📄';
+}
+
+function isPreviewable(name) {
+  return (name || '').toLowerCase().endsWith('.pdf');
+}
+
+function openDocPane() {
+  document.querySelector('.workspace').classList.add('doc-open');
+}
+
+function closeDocPane() {
+  document.querySelector('.workspace').classList.remove('doc-open');
+  docPaneMode = null;
+  currentArtifactReview = null;
+  document.getElementById('docCanvas').className = 'doc-canvas review-mode';
+  document.getElementById('docBody').innerHTML = '';
+  document.getElementById('docName').textContent = 'documento';
+  document.getElementById('docTabIcon').textContent = '📄';
+  document.getElementById('docDownloadLink').href = '#';
+  document.getElementById('docDownloadLink').classList.add('hidden');
   document.getElementById('approveSection').style.display = 'none';
   document.getElementById('approveBtn').style.display = 'none';
   document.getElementById('docToolbar').style.display = 'none';
 }
 
+function resetDocPane() {
+  closeDocPane();
+}
+
+function showGeneratingDoc(title, docType) {
+  openDocPane();
+  docPaneMode = 'generating';
+  const label = { CIM: 'CIM', VALUATION: 'Valuation', DUE_DILIGENCE: 'Due Diligence' }[docType] || docType;
+  document.getElementById('docTabIcon').textContent = '✦';
+  document.getElementById('docName').textContent = `${label} — ${title || 'gerando...'}`;
+  document.getElementById('docDownloadLink').classList.add('hidden');
+  document.getElementById('approveSection').style.display = 'none';
+  document.getElementById('approveBtn').style.display = 'none';
+  document.getElementById('docToolbar').style.display = 'none';
+  document.getElementById('docCanvas').className = 'doc-canvas';
+  document.getElementById('docBody').innerHTML = `
+    <div class="doc-generating">
+      <div class="spinner"></div>
+      <p>Gerando ${escHtml(label)}...</p>
+      <p class="sub">O preview aparece aqui enquanto o pipeline roda.<br>Você pode acompanhar as etapas no chat.</p>
+    </div>`;
+}
+
+function showSourceDocument(dealId, docId, filename) {
+  openDocPane();
+  docPaneMode = 'source';
+  currentDealId = dealId;
+  currentArtifactReview = null;
+  const url = documentDownloadUrl(dealId, docId);
+  const icon = fileIcon(filename);
+  document.getElementById('docTabIcon').textContent = icon;
+  document.getElementById('docName').textContent = filename;
+  document.getElementById('docDownloadLink').href = url;
+  document.getElementById('docDownloadLink').classList.remove('hidden');
+  document.getElementById('approveSection').style.display = 'none';
+  document.getElementById('approveBtn').style.display = 'none';
+  document.getElementById('docToolbar').style.display = 'none';
+
+  if (isPreviewable(filename)) {
+    document.getElementById('docCanvas').className = 'doc-canvas';
+    document.getElementById('docBody').innerHTML = `<iframe class="doc-preview-frame" src="${url}" title="${escHtml(filename)}"></iframe>`;
+  } else {
+    document.getElementById('docCanvas').className = 'doc-canvas review-mode';
+    document.getElementById('docBody').innerHTML = `
+      <div class="doc-page">
+        <div class="doc-page-empty">
+          <div class="icon">${icon}</div>
+          <p><strong>${escHtml(filename)}</strong><br>Preview não disponível neste formato.<br>Use Download para abrir o arquivo.</p>
+        </div>
+      </div>`;
+  }
+}
+
+function addFileChip(filename, meta, onClick) {
+  hideEmptyFeed();
+  const feed = document.getElementById('messages');
+  const el = document.createElement('div');
+  el.className = 'file-chip-row';
+  el.innerHTML = `
+    <button type="button" class="file-chip">
+      <span class="chip-icon">${fileIcon(filename)}</span>
+      <span>
+        <div>${escHtml(filename)}</div>
+        ${meta ? `<div class="chip-meta">${escHtml(meta)}</div>` : ''}
+      </span>
+    </button>`;
+  el.querySelector('.file-chip').onclick = onClick;
+  feed.appendChild(el);
+  feed.scrollTop = feed.scrollHeight;
+}
+
 async function loadDealPanel(dealId, nome) {
   try {
-    const res = await apiFetch(`${API}/deals/${dealId}`);
+    const res = await apiFetch(`${API}/deal/${dealId}`);
     if (!res.ok) return;
-    const deal = await res.json();
-    const artifact = (deal.artifacts || []).find(a => a.file_path) || (deal.artifacts || [])[0];
-    if (artifact && artifact.file_path) {
-      await showArtifactPanel(dealId, artifact.id, nome, {
-        source_file: artifact.file_path.split('/').pop(),
-        tipo: artifact.artifact_type,
-        criado_em: artifact.created_at,
-      });
-    }
+    const data = await res.json();
+    renderDealFileChips(dealId, data);
   } catch (e) { console.error(e); }
+}
+
+function renderDealFileChips(dealId, data) {
+  const docs = data.documentos || [];
+  if (!docs.length) return;
+  addAgentText('Arquivos neste deal — clique para abrir no painel:');
+  docs.forEach(doc => {
+    const isArtifact = !!doc.artifact_id;
+    const id = doc.artifact_id || doc.id;
+    const name = doc.source_file || doc.nome;
+    const meta = isArtifact ? (doc.tipo || 'gerado') : 'data room';
+    addFileChip(name, meta, () => {
+      if (isArtifact) showArtifactPanel(dealId, id, data.deal?.nome || name, doc);
+      else showSourceDocument(dealId, id, name);
+    });
+  });
 }
 
 function auditStatusClass(status) {
@@ -682,9 +827,12 @@ function updateApproveUi(review) {
 }
 
 async function showArtifactPanel(dealId, artifactId, nome, docMeta = {}) {
+  openDocPane();
+  docPaneMode = 'artifact';
   currentDealId = dealId;
   const downloadUrl = artifactDownloadUrl(dealId, artifactId);
   document.getElementById('docDownloadLink').href = downloadUrl;
+  document.getElementById('docDownloadLink').classList.remove('hidden');
   document.getElementById('docToolbar').style.display = 'flex';
 
   try {
@@ -695,23 +843,26 @@ async function showArtifactPanel(dealId, artifactId, nome, docMeta = {}) {
     const art = review.artifact;
     const filename = (art.file_path || docMeta.source_file || `${nome}.pptx`).split('/').pop();
 
+    document.getElementById('docTabIcon').textContent = fileIcon(filename);
     document.getElementById('docName').textContent = filename;
     document.getElementById('docPageInfo').textContent = `1 / 1`;
+    document.getElementById('docCanvas').className = 'doc-canvas review-mode';
 
     document.getElementById('docBody').innerHTML = `
-      <div class="doc-h1">${escHtml(nome)}</div>
-      <p class="doc-p">${escHtml(art.artifact_type)} · versão ${art.version} · ${formatDate(art.created_at || docMeta.criado_em)}</p>
-      <div class="doc-h1">Validação factual</div>
-      ${renderQaSection(review)}
-      <div class="doc-h1">Citações por campo</div>
-      ${renderFieldAuditsTable(review.field_audits)}
-      <div class="doc-h1">Alinhamento e termos</div>
-      <p class="doc-p">Documento gerado por EVA com rastreabilidade por arquivo e página do data room. Revise os campos acima antes de aprovar.</p>
-    `;
+      <div class="doc-page">
+        <div class="doc-h1">${escHtml(nome)}</div>
+        <p class="doc-p">${escHtml(art.artifact_type)} · versão ${art.version} · ${formatDate(art.created_at || docMeta.criado_em)}</p>
+        <div class="doc-h1">Validação factual</div>
+        ${renderQaSection(review)}
+        <div class="doc-h1">Citações por campo</div>
+        ${renderFieldAuditsTable(review.field_audits)}
+        <div class="doc-h1">Alinhamento e termos</div>
+        <p class="doc-p">Documento gerado por EVA com rastreabilidade por arquivo e página do data room. Revise os campos acima antes de aprovar.</p>
+      </div>`;
     updateApproveUi(review);
-    addStatusLine('Documento pronto para revisão', true);
   } catch (e) {
-    document.getElementById('docBody').innerHTML = `<p class="doc-p">Erro: ${escHtml(e.message)}</p>`;
+    document.getElementById('docCanvas').className = 'doc-canvas review-mode';
+    document.getElementById('docBody').innerHTML = `<div class="doc-page"><p class="doc-p">Erro: ${escHtml(e.message)}</p></div>`;
   }
 }
 
@@ -781,27 +932,19 @@ async function selectDeal(dealId, nome, type) {
   currentDocType = type;
   setHeader(`${nome}`, nome, type);
   document.getElementById('messages').innerHTML = '';
+  resetDocPane();
   document.getElementById('navDrawer').classList.add('hidden');
   try {
     const res = await apiFetch(`${API}/deal/${dealId}`);
     if (!res.ok) return;
     const data = await res.json();
     if (data.documentos?.length) {
-      const doc = data.documentos.find(d => d.artifact_id) || data.documentos[0];
-      if (doc.artifact_id) {
-        showDocument(doc, dealId, nome);
-        addAgentText(`Documento <strong>${escHtml(nome)}</strong> disponível para revisão.`);
-      } else {
-        addStatusLine(`Data room: ${doc.source_file || doc.nome} indexado`, true);
-      }
+      renderDealFileChips(dealId, data);
+      addAgentText(`Deal <strong>${escHtml(nome)}</strong> — clique em um arquivo para abrir.`);
     } else {
       addAgentText('Nenhum documento neste deal. Anexe um PDF no chat.');
     }
   } catch (e) { console.error(e); }
-}
-
-function showDocument(doc, dealId, nome) {
-  showArtifactPanel(dealId, doc.artifact_id || doc.id, nome, doc);
 }
 
 function showNewDeal() {
@@ -825,6 +968,7 @@ async function sendMsg() {
     await ensureConversation();
     addUserPrompt(escHtml(text), tagsHtml);
     addThoughtBlock('Planejando geração...');
+    showGeneratingDoc(currentCompanyTag || 'Documento', currentDocType);
 
     const res = await apiFetch(`${API}/jobs/web`, {
       method: 'POST',
@@ -836,7 +980,10 @@ async function sendMsg() {
     }
     const job = await res.json();
     if (job.deal_id) currentDealId = job.deal_id;
-    if (job.company_name) setHeader(`${job.company_name}`, job.company_name, job.document_type || 'CIM');
+    if (job.company_name) {
+      setHeader(`${job.company_name}`, job.company_name, job.document_type || 'CIM');
+      showGeneratingDoc(job.company_name, job.document_type || currentDocType);
+    }
 
     addStatusLine(`Deal vinculado · job ${job.id.slice(0, 8)}...`);
     showTasksCard(job.id);
@@ -913,14 +1060,28 @@ function pollJob(jobId, companyName) {
         if (footer) { footer.className = 'task-footer done'; footer.innerHTML = '<span>Todas as etapas concluídas</span><span>✓ 4/4</span>'; }
         addStatusLine('Artefato gerado e indexado no deal', true);
         addAgentText(`<strong>${escHtml(companyName)}</strong> está pronto. Revise o documento à direita e aprove quando satisfeito.`);
-        if (currentConversationId) selectConversation(currentConversationId);
-        else if (currentDealId) loadDealPanel(currentDealId, companyName);
+        if (currentDealId) {
+          const dealRes = await apiFetch(`${API}/deal/${currentDealId}`);
+          if (dealRes.ok) {
+            const dealData = await dealRes.json();
+            const art = (dealData.documentos || []).find(d => d.artifact_id);
+            if (art) showArtifactPanel(currentDealId, art.artifact_id, companyName || dealData.deal?.nome, art);
+          }
+        }
         loadConversations();
         loadDeals();
       }
       if (job.status === 'error') {
         clearInterval(pollTimer);
         addAgentText(`❌ Erro: ${escHtml(job.error || 'tente novamente.')}`);
+        if (docPaneMode === 'generating') {
+          document.getElementById('docBody').innerHTML = `
+            <div class="doc-generating">
+              <div class="icon" style="font-size:32px">⚠</div>
+              <p>Falha na geração</p>
+              <p class="sub">${escHtml(job.error || 'Tente novamente.')}</p>
+            </div>`;
+        }
       }
     } catch (e) { console.error(e); }
   }, 4000);
@@ -946,7 +1107,6 @@ async function uploadChatDocument(file) {
   if (!file) return;
   try {
     await ensureConversation();
-    addUserPrompt(`📎 ${escHtml(file.name)}`);
     addThoughtBlock('Ingerindo documento...');
     const formData = new FormData();
     formData.append('file', file);
@@ -956,6 +1116,11 @@ async function uploadChatDocument(file) {
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.detail || 'Erro na ingestão');
     currentDealId = body.deal_id;
+    const docId = body.document?.id;
+    addFileChip(file.name, `${body.chunk_count} chunks indexados`, () => {
+      if (docId) showSourceDocument(body.deal_id, docId, file.name);
+    });
+    showSourceDocument(body.deal_id, docId, file.name);
     addStatusLine(`Ingeriu ${escHtml(file.name)} · ${body.chunk_count} chunks indexados`, true);
     addAgentText('Documento no data room. Agora peça o CIM ou Valuation.');
     loadConversations();
