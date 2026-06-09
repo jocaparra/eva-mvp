@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { WorkerEnv } from "./lib/env";
 import { planJob } from "./planner";
 import { executeSteps } from "./executor";
+import { deliverDocument } from "./deliver";
 
 type JobRecord = {
   id: string;
@@ -67,17 +68,35 @@ export async function runJob(params: {
       plan,
     });
 
-    // ── Entrega ──
-    // A geração de documento (PPTX/PDF/DOCX/XLSX) + upload no Storage chega
-    // na Fase 5. Aqui o conteúdo final já está em job_steps.output.
-    const finalStep = outputs[outputs.length - 1];
-    await supabase.from("messages").insert({
-      job_id: jobId,
-      role: "eva",
-      content: finalStep
-        ? `Execução concluída. Resultado final:\n\n${finalStep.content.slice(0, 4000)}`
-        : "Execução concluída.",
-    });
+    // ── Entrega: gerar documento, subir no Storage e registrar ──
+    const finalStep = [...outputs]
+      .reverse()
+      .find((output) => output.step.tipo_entregavel !== null);
+
+    if (finalStep?.step.tipo_entregavel) {
+      const filename = await deliverDocument({
+        supabase,
+        jobId,
+        userId: job.user_id,
+        title: job.title,
+        tipo: finalStep.step.tipo_entregavel,
+        content: finalStep.content,
+      });
+      await supabase.from("messages").insert({
+        job_id: jobId,
+        role: "eva",
+        content: `Documento pronto: ${filename}. Disponível para download nos entregáveis.`,
+      });
+    } else {
+      const lastOutput = outputs[outputs.length - 1];
+      await supabase.from("messages").insert({
+        job_id: jobId,
+        role: "eva",
+        content: lastOutput
+          ? `Execução concluída. Resultado final:\n\n${lastOutput.content.slice(0, 4000)}`
+          : "Execução concluída.",
+      });
+    }
 
     await supabase
       .from("jobs")
