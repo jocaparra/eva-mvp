@@ -7,12 +7,15 @@
     "dev": "tsx watch --env-file-if-exists=../../.env src/index.ts",
     "start": "tsx src/index.ts",
     "seed:admin": "tsx --env-file-if-exists=../../.env src/scripts/seed-admin.ts",
+    "test": "tsx --test src/planner.test.ts",
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "0.103.0",
     "@eva/shared": "0.1.0",
     "@supabase/supabase-js": "2.108.1",
+    "pg-boss": "12.18.2",
     "tsx": "4.22.4",
     "zod": "4.4.3"
   },

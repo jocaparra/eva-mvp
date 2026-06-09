@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { enqueueJob } from "@/lib/queue";
 
 const createJobSchema = z.object({
   prompt: z
@@ -16,8 +17,8 @@ function deriveTitle(prompt: string): string {
 }
 
 /**
- * Cria um job (status queued) e a mensagem inicial do usuário.
- * O enqueue no pg-boss é adicionado aqui na Fase 4.
+ * Cria um job (status queued), a mensagem inicial do usuário e enfileira
+ * a execução no pg-boss para o worker consumir.
  */
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -75,6 +76,26 @@ export async function POST(request: Request) {
     role: "user",
     content: parsed.data.prompt,
   });
+
+  try {
+    await enqueueJob(job.id);
+  } catch (enqueueError) {
+    console.error(
+      "[api/jobs] falha no enqueue:",
+      enqueueError instanceof Error ? enqueueError.message : enqueueError,
+    );
+    await supabase
+      .from("jobs")
+      .update({
+        status: "failed",
+        error: "Não foi possível enfileirar a execução. Tente novamente em instantes.",
+      })
+      .eq("id", job.id);
+    return NextResponse.json(
+      { error: "Não foi possível iniciar a execução. Tente novamente." },
+      { status: 500 },
+    );
+  }
 
   return NextResponse.json({ id: job.id }, { status: 201 });
 }
