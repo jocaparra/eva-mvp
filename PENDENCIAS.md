@@ -23,6 +23,11 @@ Registro de dúvidas, bloqueios e justificativas, conforme regras 1 e 7 do spec.
 
 ## Justificativas de dependências fora da lista da seção 2
 
+0. **`@supabase/ssr` (apps/web):** pacote oficial do Supabase para auth
+   cookie-based no Next.js App Router (Server Components + middleware).
+   É a forma recomendada pela própria Supabase de usar o item "Supabase
+   (Auth)" da seção 2 com Next.js 15.
+
 4. **`tsx` (apps/worker):** runner TypeScript para o worker Node em dev e
    produção, evitando etapa de bundling no MVP. Não altera a stack — o worker
    continua "App Node.js + TypeScript" conforme a seção 2.
