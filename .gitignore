@@ -1,9 +1,31 @@
-.venv/
-__pycache__/
-*.py[cod]
+# Node
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+.turbo/
+
+# Env — nunca commitar segredos
 .env
-eva_workspace.db
-outputs/*.pptx
-artifact_storage/
-uploads/
+.env.*
+!.env.example
+
+# Logs e SO
+npm-debug.log*
 .DS_Store
+
+# Vercel
+.vercel/
+
+# Legacy (app Python anterior)
+legacy/.venv/
+legacy/__pycache__/
+legacy/**/__pycache__/
+legacy/*.py[cod]
+legacy/.env
+legacy/eva_workspace.db
+legacy/outputs/*.pptx
+legacy/artifact_storage/
+legacy/uploads/
+legacy/.pytest_cache/
